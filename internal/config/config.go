@@ -51,12 +51,10 @@ func ParseConfig[Config BasicConfigurator](binaryName, environment string) (Conf
 	var empty Config
 	k := koanf.New(".")
 
-	// Layer 1: base.toml — optional; missing file is silently skipped.
+	// Layer 1: base.toml — required.
 	basePath := fmt.Sprintf("config/%s/base.toml", binaryName)
-	if _, statErr := os.Stat(basePath); statErr == nil {
-		if err := k.Load(file.Provider(basePath), toml.Parser()); err != nil {
-			return empty, fmt.Errorf("load base config (%s, %s): %w", binaryName, environment, err)
-		}
+	if err := k.Load(file.Provider(basePath), toml.Parser()); err != nil {
+		return empty, fmt.Errorf("load base config (%s, %s): %w", binaryName, environment, err)
 	}
 
 	// Layer 2: <env>.toml — required.
