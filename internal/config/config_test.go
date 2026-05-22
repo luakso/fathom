@@ -27,10 +27,9 @@ func writeCfg(t *testing.T, binary, base, env, secrets string) string {
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if base != "" {
-		if err := os.WriteFile(filepath.Join(cfgDir, "base.toml"), []byte(base), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	// Always write base.toml even when empty — the loader requires its existence.
+	if err := os.WriteFile(filepath.Join(cfgDir, "base.toml"), []byte(base), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	if env != "" {
 		if err := os.WriteFile(filepath.Join(cfgDir, "local.toml"), []byte(env), 0o644); err != nil {
