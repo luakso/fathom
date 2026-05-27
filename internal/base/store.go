@@ -65,6 +65,13 @@ func (s *Store) InsertBatch(ctx context.Context, batch []x402.Payment, maxBlock 
 	return nil
 }
 
+// Pool returns the underlying pgxpool.Pool. Provided for tests and the
+// status subcommand (Plan 4) which runs ad-hoc aggregations. Production
+// code should prefer the typed methods on Store.
+func (s *Store) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
 // GetCursor returns the last fully-committed block for this collector. Returns
 // 0 if no cursor row exists yet (the "never synced" state).
 func (s *Store) GetCursor(ctx context.Context) (uint64, error) {
