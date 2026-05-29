@@ -6,10 +6,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// We test the Client wrapper indirectly via the Tailer (Task 4). This file's
-// purpose is the contract test: any future Client implementation must satisfy
-// the interface and return the documented zero values on the documented
-// error conditions.
+// The concrete RPCClient is exercised through a fake Client in the FetchRange
+// and Tailer tests. This file holds only the contract checks that don't need a
+// live RPC: the compile-time interface assertion and the empty-URL guard.
 
 func TestClient_InterfaceShape(t *testing.T) {
 	t.Parallel()
