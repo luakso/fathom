@@ -112,6 +112,10 @@ func (t *Tailer) iterate(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("read cursor: %w", err)
 	}
 
+	// The tip read is intentionally NOT wrapped in WithRateLimitBackoff (unlike
+	// the FetchRange RPC calls): it is cheap and runs every poll, so on a 429
+	// we'd rather fail fast and let the next poll (or a compose restart) retry
+	// than block the loop on a backoff schedule.
 	tip, err := t.client.BlockNumber(ctx)
 	if err != nil {
 		return false, fmt.Errorf("read tip: %w", err)
