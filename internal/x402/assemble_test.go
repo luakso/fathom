@@ -68,13 +68,14 @@ func TestAssemble_SinglePayment_DirectUSDCCall(t *testing.T) {
 	}
 
 	block := Block{Number: 42, Timestamp: 1_700_000_000, BaseFeePerGas: big.NewInt(500_000_000)}
-	out := Assemble(
+	out, stats := Assemble(
 		logs,
 		map[common.Hash]Transaction{tx.Hash: tx},
 		map[common.Hash][]Log{tx.Hash: logs},
 		map[uint64]Block{42: block},
 	)
 	require.Len(t, out, 1)
+	require.Equal(t, AssembleStats{AuthLogs: 1, Denied: 0, Kept: 1, Dropped: 0}, stats)
 	p := out[0]
 	require.Equal(t, ChainBase, p.Chain)
 	require.Equal(t, uint32(0), p.LogIndex) // the AuthorizationUsed log index
@@ -117,13 +118,15 @@ func TestAssemble_DropsReceiveWithAuthorization(t *testing.T) {
 			Data: bytes32(0xab), TxHash: tx.Hash, LogIndex: 1, BlockNumber: 42,
 		},
 	}
-	out := Assemble(
+	out, stats := Assemble(
 		logs,
 		map[common.Hash]Transaction{tx.Hash: tx},
 		map[common.Hash][]Log{tx.Hash: logs},
 		map[uint64]Block{42: {Number: 42, Timestamp: 1_700_000_000}},
 	)
 	require.Empty(t, out, "receiveWithAuthorization tx must be dropped at the filter")
+	// A denied selector is an EXPECTED drop, not an anomaly — Denied, never Dropped.
+	require.Equal(t, AssembleStats{AuthLogs: 1, Denied: 1, Kept: 0, Dropped: 0}, stats)
 }
 
 func TestAssemble_MulticallProducesMultipleRows(t *testing.T) {
@@ -148,13 +151,14 @@ func TestAssemble_MulticallProducesMultipleRows(t *testing.T) {
 		{Address: USDCProxyBase, Topics: []common.Hash{AuthorizationUsedTopic, common.HexToHash(payerB), common.BytesToHash(bytes32(0xbb))}, TxHash: tx.Hash, LogIndex: 2, BlockNumber: 42},
 		{Address: USDCProxyBase, Topics: []common.Hash{TransferTopic, common.HexToHash(payerB), common.HexToHash(payeeB)}, Data: make32WithUint64(500), TxHash: tx.Hash, LogIndex: 3, BlockNumber: 42},
 	}
-	out := Assemble(
+	out, stats := Assemble(
 		logs,
 		map[common.Hash]Transaction{tx.Hash: tx},
 		map[common.Hash][]Log{tx.Hash: logs},
 		map[uint64]Block{42: {Number: 42, Timestamp: 1_700_000_000}},
 	)
 	require.Len(t, out, 2)
+	require.Equal(t, AssembleStats{AuthLogs: 2, Denied: 0, Kept: 2, Dropped: 0}, stats)
 
 	require.Equal(t, uint32(0), out[0].LogIndex)
 	require.Equal(t, "0xaaaa000000000000000000000000000000000001", out[0].Payer)
@@ -180,13 +184,16 @@ func TestAssemble_SkipsAuthMissingCompanionTransfer(t *testing.T) {
 			Data:    bytes32(0xaa), TxHash: tx.Hash, LogIndex: 0, BlockNumber: 42,
 		},
 	}
-	out := Assemble(
+	out, stats := Assemble(
 		logs,
 		map[common.Hash]Transaction{tx.Hash: tx},
 		map[common.Hash][]Log{tx.Hash: logs},
 		map[uint64]Block{42: {Number: 42, Timestamp: 1_700_000_000}},
 	)
 	require.Empty(t, out, "auth without a companion Transfer must be skipped, not exploded")
+	// A genuine candidate (passed the keep filter) that yields no row is an
+	// ANOMALOUS drop — this is exactly the signal the backfill guard watches.
+	require.Equal(t, AssembleStats{AuthLogs: 1, Denied: 0, Kept: 0, Dropped: 1}, stats)
 }
 
 // helpers

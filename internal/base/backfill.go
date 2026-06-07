@@ -60,36 +60,81 @@ func (b *Backfiller) Run(ctx context.Context, fromBlock, toBlock uint64) error {
 			return nil
 		}
 
-		payments, decodeErr := decodeBatch(batch)
+		payments, stats, decodeErr := decodeBatch(batch)
 		if decodeErr != nil {
 			return fmt.Errorf("decode batch: %w", decodeErr)
 		}
 
 		maxBlock := batch.MaxBlock() // returns 0 for empty batches → cursor skip in Store
+
+		// Silent-loss guard. The whole pipeline assumes JoinAll returns the
+		// companion Transfer logs alongside each AuthorizationUsed. If that
+		// assumption ever regresses, every candidate fails pairing, Assemble
+		// returns zero rows, and — without this guard — the cursor would still
+		// advance over the block range, turning a systemic break into permanent
+		// data gaps. Halt before InsertBatch so the cursor stays put and the run
+		// is resumable once the cause is fixed. Denied-only batches
+		// (receiveWithAuthorization) legitimately produce zero rows and are
+		// excluded by allCandidatesLost.
+		if allCandidatesLost(stats) {
+			return fmt.Errorf(
+				"assemble produced 0 rows from %d candidate AuthorizationUsed logs "+
+					"(denied=%d dropped=%d max_block=%d): companion pairing likely broke — "+
+					"refusing to advance cursor",
+				stats.AuthLogs, stats.Denied, stats.Dropped, maxBlock,
+			)
+		}
+
 		if err := b.store.InsertBatch(ctx, payments, maxBlock); err != nil {
 			return fmt.Errorf("insert batch (rows=%d max_block=%d): %w", len(payments), maxBlock, err)
+		}
+
+		// Anomalous drops below the all-lost threshold don't halt the run, but
+		// they must be visible — a rising drop count is the early warning that
+		// something upstream is degrading.
+		if stats.Dropped > 0 {
+			slog.Warn(
+				"backfill: candidates dropped during assemble",
+				"dropped", stats.Dropped,
+				"kept", stats.Kept,
+				"auth_logs", stats.AuthLogs,
+				"max_block", maxBlock,
+			)
 		}
 
 		slog.Info(
 			"backfill: batch committed",
 			"rows", len(payments),
+			"kept", stats.Kept,
+			"denied", stats.Denied,
+			"dropped", stats.Dropped,
+			"auth_logs", stats.AuthLogs,
 			"max_block", maxBlock,
 			"duration_ms", time.Since(started).Milliseconds(),
 		)
 	}
 }
 
+// allCandidatesLost reports whether a batch carried genuine x402 candidates
+// (AuthorizationUsed logs beyond the expected receiveWithAuthorization denials)
+// yet produced no rows at all — the signature of a companion-pairing/JoinAll
+// regression. Denied-only and genuinely-empty batches return false.
+func allCandidatesLost(stats x402.AssembleStats) bool {
+	expected := stats.AuthLogs - stats.Denied
+	return expected > 0 && stats.Kept == 0
+}
+
 // decodeBatch converts the HyperSync wire batch into ([]Payment) ready for
 // Store.InsertBatch. Per-row decode failures (bad hex, missing companion)
 // log a warn inside Assemble and are skipped — only structural failures
 // (whole-row convert errors) abort.
-func decodeBatch(batch HyperSyncBatch) ([]x402.Payment, error) {
+func decodeBatch(batch HyperSyncBatch) ([]x402.Payment, x402.AssembleStats, error) {
 	logs := make([]x402.Log, 0, len(batch.Data.Logs))
 	receiptByHash := map[common.Hash][]x402.Log{}
 	for i, hl := range batch.Data.Logs {
 		lg, err := ConvertLog(hl)
 		if err != nil {
-			return nil, fmt.Errorf("log[%d]: %w", i, err)
+			return nil, x402.AssembleStats{}, fmt.Errorf("log[%d]: %w", i, err)
 		}
 		logs = append(logs, lg)
 		receiptByHash[lg.TxHash] = append(receiptByHash[lg.TxHash], lg)
@@ -99,7 +144,7 @@ func decodeBatch(batch HyperSyncBatch) ([]x402.Payment, error) {
 	for i, ht := range batch.Data.Transactions {
 		tx, err := ConvertTransaction(ht)
 		if err != nil {
-			return nil, fmt.Errorf("tx[%d]: %w", i, err)
+			return nil, x402.AssembleStats{}, fmt.Errorf("tx[%d]: %w", i, err)
 		}
 		txByHash[tx.Hash] = tx
 	}
@@ -108,10 +153,11 @@ func decodeBatch(batch HyperSyncBatch) ([]x402.Payment, error) {
 	for i, hb := range batch.Data.Blocks {
 		blk, err := ConvertBlock(hb)
 		if err != nil {
-			return nil, fmt.Errorf("block[%d]: %w", i, err)
+			return nil, x402.AssembleStats{}, fmt.Errorf("block[%d]: %w", i, err)
 		}
 		blockByNumber[blk.Number] = blk
 	}
 
-	return x402.Assemble(logs, txByHash, receiptByHash, blockByNumber), nil
+	payments, stats := x402.Assemble(logs, txByHash, receiptByHash, blockByNumber)
+	return payments, stats, nil
 }
