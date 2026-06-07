@@ -11,12 +11,93 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/shopspring/decimal"
 
 	"github.com/lukostrobl/fathom/internal/x402"
 )
 
 const collectorName = "base-collector"
+
+// stageTable is the per-transaction staging table COPY bulk-loads into before
+// the deduped INSERT … SELECT. ON COMMIT DROP ties its lifetime to the batch
+// transaction, so each InsertBatch gets a fresh, empty staging table.
+const stageTable = "payments_copy_stage"
+
+// copyColumns is the column order shared by the COPY into the staging table and
+// the INSERT … SELECT out of it. observed_at is intentionally absent so it
+// keeps its DEFAULT now() — matching the row-by-row path it replaces.
+var copyColumns = []string{
+	"chain", "tx_hash", "log_index",
+	"block_number", "block_timestamp",
+	"source", "protocol",
+	"facilitator", "payer", "payee", "payee_service_id",
+	"asset", "token_address", "amount_raw", "amount_usdc", "asset_usd_at_time",
+	"auth_nonce",
+	"method_selector", "called_contract", "tx_type", "tx_nonce",
+	"gas_used", "effective_gas_price", "gas_cost_wei", "base_fee_per_gas",
+}
+
+// createStageTable types the six NUMERIC columns (amount_raw, amount_usdc,
+// asset_usd_at_time, effective_gas_price, gas_cost_wei, base_fee_per_gas) as
+// TEXT. pgx's COPY uses the binary wire format and there is no shopspring
+// decimal codec registered on the pool, so decimals cannot be binary-encoded
+// into NUMERIC directly. Staging them as TEXT and casting ::numeric on the
+// INSERT … SELECT keeps full precision without a codec dependency.
+const createStageTable = `
+CREATE TEMP TABLE ` + stageTable + ` (
+    chain               text,
+    tx_hash             text,
+    log_index           integer,
+    block_number        bigint,
+    block_timestamp     timestamptz,
+    source              text,
+    protocol            text,
+    facilitator         text,
+    payer               text,
+    payee               text,
+    payee_service_id    bigint,
+    asset               text,
+    token_address       text,
+    amount_raw          text,
+    amount_usdc         text,
+    asset_usd_at_time   text,
+    auth_nonce          bytea,
+    method_selector     bytea,
+    called_contract     text,
+    tx_type             smallint,
+    tx_nonce            bigint,
+    gas_used            bigint,
+    effective_gas_price text,
+    gas_cost_wei        text,
+    base_fee_per_gas    text
+) ON COMMIT DROP`
+
+// insertFromStage moves staged rows into payments with the same dedupe
+// semantics as the old per-row path: ON CONFLICT (chain, tx_hash, log_index)
+// DO NOTHING. The ::numeric casts are exact for decimal text; an out-of-range
+// value (e.g. > NUMERIC(78,0)) errors here and rolls the batch back.
+const insertFromStage = `
+INSERT INTO payments (
+    chain, tx_hash, log_index,
+    block_number, block_timestamp,
+    source, protocol,
+    facilitator, payer, payee, payee_service_id,
+    asset, token_address, amount_raw, amount_usdc, asset_usd_at_time,
+    auth_nonce,
+    method_selector, called_contract, tx_type, tx_nonce,
+    gas_used, effective_gas_price, gas_cost_wei, base_fee_per_gas
+)
+SELECT
+    chain, tx_hash, log_index,
+    block_number, block_timestamp,
+    source, protocol,
+    facilitator, payer, payee, payee_service_id,
+    asset, token_address,
+    amount_raw::numeric, amount_usdc::numeric, asset_usd_at_time::numeric,
+    auth_nonce,
+    method_selector, called_contract, tx_type, tx_nonce,
+    gas_used, effective_gas_price::numeric, gas_cost_wei::numeric, base_fee_per_gas::numeric
+FROM ` + stageTable + `
+ON CONFLICT (chain, tx_hash, log_index) DO NOTHING`
 
 // Store wraps a pgxpool.Pool with the operations base-collector needs.
 type Store struct {
@@ -46,10 +127,9 @@ func (s *Store) InsertBatch(ctx context.Context, batch []x402.Payment, maxBlock 
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op after Commit
 
-	for i := range batch {
-		if err := insertPayment(ctx, tx, &batch[i]); err != nil {
-			return fmt.Errorf("insert payment[%d] tx=%s log_index=%d: %w",
-				i, batch[i].TxHash, batch[i].LogIndex, err)
+	if len(batch) > 0 {
+		if err := copyBatch(ctx, tx, batch); err != nil {
+			return err
 		}
 	}
 
@@ -61,6 +141,30 @@ func (s *Store) InsertBatch(ctx context.Context, batch []x402.Payment, maxBlock 
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// copyBatch bulk-loads batch into a fresh staging table via pgx.CopyFrom, then
+// moves the rows into payments with the deduping INSERT … SELECT. Both run on
+// the caller's transaction, so the load and the cursor advance commit (or roll
+// back) together — same atomicity as the row-by-row path it replaces.
+func copyBatch(ctx context.Context, tx pgx.Tx, batch []x402.Payment) error {
+	if _, err := tx.Exec(ctx, createStageTable); err != nil {
+		return fmt.Errorf("create stage table: %w", err)
+	}
+
+	rows := make([][]any, len(batch))
+	for i := range batch {
+		rows[i] = copyRow(&batch[i])
+	}
+
+	if _, err := tx.CopyFrom(ctx, pgx.Identifier{stageTable}, copyColumns, pgx.CopyFromRows(rows)); err != nil {
+		return fmt.Errorf("copy into stage: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, insertFromStage); err != nil {
+		return fmt.Errorf("insert from stage: %w", err)
 	}
 	return nil
 }
@@ -93,52 +197,27 @@ func (s *Store) GetCursor(ctx context.Context) (uint64, error) {
 	return uint64(last), nil
 }
 
-func insertPayment(ctx context.Context, tx pgx.Tx, p *x402.Payment) error {
-	amountRaw := decimal.NewFromBigInt(p.AmountRaw, 0)
-	effectiveGasPrice := decimal.NewFromBigInt(p.EffectiveGasPrice, 0)
-	gasCostWei := decimal.NewFromBigInt(p.GasCostWei, 0)
+// copyRow flattens a Payment into the staging table's column order (see
+// copyColumns). The six NUMERIC columns are emitted as text so COPY's binary
+// encoder never has to encode a shopspring decimal; Postgres casts them back to
+// NUMERIC on the INSERT … SELECT. base_fee_per_gas stays nil (→ SQL NULL) when
+// the source tx carried no base fee, preserving the nullable column.
+func copyRow(p *x402.Payment) []any {
 	var baseFee any
 	if p.BaseFeePerGas != nil {
-		baseFee = decimal.NewFromBigInt(p.BaseFeePerGas, 0)
+		baseFee = p.BaseFeePerGas.String()
 	}
 
-	_, err := tx.Exec(
-		ctx, `
-        INSERT INTO payments (
-            chain, tx_hash, log_index,
-            block_number, block_timestamp,
-            source, protocol,
-            facilitator, payer, payee, payee_service_id,
-            asset, token_address, amount_raw, amount_usdc, asset_usd_at_time,
-            auth_nonce,
-            method_selector, called_contract, tx_type, tx_nonce,
-            gas_used, effective_gas_price, gas_cost_wei, base_fee_per_gas
-        )
-        VALUES (
-            $1, $2, $3,
-            $4, $5,
-            $6, $7,
-            $8, $9, $10, $11,
-            $12, $13, $14, $15, $16,
-            $17,
-            $18, $19, $20, $21,
-            $22, $23, $24, $25
-        )
-        ON CONFLICT (chain, tx_hash, log_index) DO NOTHING
-    `,
+	return []any{
 		p.Chain, p.TxHash, int32(p.LogIndex), //nolint:gosec // log_index fits in int32; receipts cap well below 2^31
 		int64(p.BlockNumber), p.BlockTimestamp, //nolint:gosec // Base block numbers will never approach 2^63
 		p.Source, p.Protocol,
 		p.Facilitator, p.Payer, p.Payee, p.PayeeServiceID,
-		p.Asset, p.TokenAddress, amountRaw, p.AmountUSDC, p.AssetUSDAtTime,
+		p.Asset, p.TokenAddress, p.AmountRaw.String(), p.AmountUSDC.String(), p.AssetUSDAtTime.String(),
 		p.AuthNonce,
 		p.MethodSelector, p.CalledContract, int16(p.TxType), int64(p.TxNonce), //nolint:gosec // tx_nonce fits in int64 for centuries
-		int64(p.GasUsed), effectiveGasPrice, gasCostWei, baseFee, //nolint:gosec // gas_used realistic blocks << 2^63
-	)
-	if err != nil {
-		return err
+		int64(p.GasUsed), p.EffectiveGasPrice.String(), p.GasCostWei.String(), baseFee, //nolint:gosec // gas_used realistic blocks << 2^63
 	}
-	return nil
 }
 
 func advanceCursor(ctx context.Context, tx pgx.Tx, newBlock uint64) error {
