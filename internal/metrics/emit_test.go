@@ -31,6 +31,7 @@ func TestEmit_WritesStampedFiles(t *testing.T) {
 	var doc struct {
 		MethodologyVersion int    `json:"methodology_version"`
 		GeneratedAt        string `json:"generated_at"`
+		DataThroughDay     string `json:"data_through_day"`
 		Data               struct {
 			Windows map[string]struct {
 				TxnCount int64 `json:"txn_count"`
@@ -40,6 +41,7 @@ func TestEmit_WritesStampedFiles(t *testing.T) {
 	require.NoError(t, json.Unmarshal(b, &doc))
 	require.Equal(t, 1, doc.MethodologyVersion)
 	require.NotEmpty(t, doc.GeneratedAt)
+	require.Equal(t, "2026-06-08", doc.DataThroughDay)
 	require.Equal(t, int64(1), doc.Data.Windows["all"].TxnCount)
 
 	// facilitators.json exists too.

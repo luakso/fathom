@@ -27,7 +27,7 @@ type artifact struct {
 // Emit builds every page and writes it as <page>.json under outDir. asOf pins
 // the window math (pass time.Now().UTC() in production).
 func Emit(ctx context.Context, pool *pgxpool.Pool, outDir string, asOf time.Time) error {
-	if err := os.MkdirAll(outDir, 0o750); err != nil {
+	if err := os.MkdirAll(outDir, 0o755); err != nil { //nolint:gosec // G301: dashboard JSON is public, served as static files
 		return fmt.Errorf("mkdir %s: %w", outDir, err)
 	}
 
@@ -77,7 +77,7 @@ func writeArtifact(outDir, name, through string, data any) error {
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", name, err)
 	}
-	if err := os.WriteFile(filepath.Join(outDir, name), b, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, name), b, 0o644); err != nil { //nolint:gosec // G306: dashboard JSON is public, served as static files
 		return fmt.Errorf("write %s: %w", name, err)
 	}
 	return nil
