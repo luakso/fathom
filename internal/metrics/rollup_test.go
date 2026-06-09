@@ -16,6 +16,8 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
+
+	"github.com/lukostrobl/fathom/internal/metrics"
 )
 
 // setupMetrics starts an ephemeral Postgres, applies all migrations and the
@@ -62,6 +64,49 @@ func setupMetrics(t *testing.T) (context.Context, *sql.DB, *pgxpool.Pool) {
 	t.Cleanup(pool.Close)
 
 	return ctx, sqlDB, pool
+}
+
+func TestRebuildDaily_Conservation(t *testing.T) {
+	ctx, db, pool := setupMetrics(t)
+	allowlist(t, ctx, db, "0xfac1")
+	seedPayments(t, ctx, db, []seedRow{
+		{"0xa", 0, "2026-06-01T10:00:00Z", "0xfac1", "0xp1", "0xs1", "0.005"}, // agentic, dust
+		{"0xb", 0, "2026-06-01T11:00:00Z", "0xfac1", "0xp2", "0xs1", "2.50"},  // agentic, small
+		{"0xc", 0, "2026-06-02T09:00:00Z", "0xfac2", "0xp3", "0xs2", "5.00"},  // contested, small
+	})
+
+	require.NoError(t, metrics.RebuildDaily(ctx, pool))
+
+	// Cube totals must equal the same aggregate taken directly from the view.
+	var cubeTxns, viewTxns int64
+	var cubeVol, viewVol string
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT coalesce(sum(txn_count),0), coalesce(sum(volume_usdc),0)::text FROM metrics_daily_v1`).
+		Scan(&cubeTxns, &cubeVol))
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT count(*), coalesce(sum(amount_usdc),0)::text FROM payment_classified_v1`).
+		Scan(&viewTxns, &viewVol))
+	require.Equal(t, viewTxns, cubeTxns, "cube txn_count must equal view row count")
+	require.Equal(t, viewVol, cubeVol, "cube volume must equal view volume")
+
+	// Grain check: one agentic dust row on day 1.
+	var n int64
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT txn_count FROM metrics_daily_v1
+		  WHERE day='2026-06-01' AND attribution='agentic' AND amount_band='dust'`).Scan(&n))
+	require.Equal(t, int64(1), n)
+}
+
+func TestRebuildDaily_Idempotent(t *testing.T) {
+	ctx, db, pool := setupMetrics(t)
+	seedPayments(t, ctx, db, []seedRow{
+		{"0xa", 0, "2026-06-01T10:00:00Z", "0xfac2", "0xp1", "0xs1", "5.00"},
+	})
+	require.NoError(t, metrics.RebuildDaily(ctx, pool))
+	require.NoError(t, metrics.RebuildDaily(ctx, pool)) // second run must not double-count
+	var total int64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT sum(txn_count) FROM metrics_daily_v1`).Scan(&total))
+	require.Equal(t, int64(1), total)
 }
 
 func TestAmountBand_Boundaries(t *testing.T) {
