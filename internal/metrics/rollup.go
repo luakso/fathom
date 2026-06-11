@@ -145,6 +145,27 @@ JOIN eth_price_monthly pr
   ON pr.month = to_char(p.block_timestamp AT TIME ZONE 'UTC', 'YYYY-MM')
 GROUP BY 1, 2, 3`
 
+// economyVelocityDailySQL: per-minute counts reduced to per-day stats.
+// p99 is over the day's ACTIVE minutes (idle minutes would zero it).
+const economyVelocityDailySQL = `
+TRUNCATE metrics_velocity_daily_v1;
+INSERT INTO metrics_velocity_daily_v1
+    (day, attribution, methodology_version, txn_count, max_per_min, p99_per_min)
+SELECT
+    day, attribution, min(mv), sum(c), max(c),
+    percentile_disc(0.99) WITHIN GROUP (ORDER BY c)
+FROM (
+    SELECT
+        (block_timestamp AT TIME ZONE 'UTC')::date AS day,
+        attribution,
+        date_trunc('minute', block_timestamp AT TIME ZONE 'UTC') AS minute,
+        min(methodology_version) AS mv,
+        count(*) AS c
+    FROM payment_classified_v1
+    GROUP BY 1, 2, 3
+) per_min
+GROUP BY day, attribution`
+
 // rebuildStatements run in order inside the one rebuild transaction. Each is
 // its own TRUNCATE + INSERT, so a failure anywhere rolls the whole generation
 // back and the previous tables stay live.
@@ -156,6 +177,7 @@ var rebuildStatements = []struct {
 	{"window_stats", economyWindowStatsSQL},
 	{"price_points", economyPricePointsSQL},
 	{"gas_daily", economyGasDailySQL},
+	{"velocity_daily", economyVelocityDailySQL},
 }
 
 // Rebuild fully recomputes every metrics table from payment_classified_v1 in a

@@ -349,6 +349,26 @@ func TestRebuild_GasApportionNonTerminating(t *testing.T) {
 	require.True(t, withinDrift, "apportioned sum must conserve tx gas to sub-wei precision")
 }
 
+func TestRebuild_VelocityPerMinute(t *testing.T) {
+	ctx, db, pool := setupMetrics(t)
+	seedPayments(t, ctx, db, []seedRow{
+		// Two payments inside the same minute, one an hour later: max_per_min=2.
+		{"0xa", 0, "2026-06-05T10:00:10Z", "0xfac2", "0xp1", "0xs1", "1.00"},
+		{"0xb", 0, "2026-06-05T10:00:50Z", "0xfac2", "0xp2", "0xs1", "1.00"},
+		{"0xc", 0, "2026-06-05T11:00:00Z", "0xfac2", "0xp3", "0xs1", "1.00"},
+	})
+	require.NoError(t, metrics.Rebuild(ctx, pool, testPrices(t)))
+
+	var txns int64
+	var maxPM, p99PM int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT txn_count, max_per_min, p99_per_min FROM metrics_velocity_daily_v1
+		WHERE day='2026-06-05' AND attribution='contested'`).Scan(&txns, &maxPM, &p99PM))
+	require.Equal(t, int64(3), txns)
+	require.Equal(t, 2, maxPM)
+	require.Equal(t, 2, p99PM) // p99 over active minutes [2,1] picks 2
+}
+
 func TestAmountBand_Boundaries(t *testing.T) {
 	ctx, db, _ := setupMetrics(t)
 	cases := []struct {
