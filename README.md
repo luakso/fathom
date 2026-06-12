@@ -77,6 +77,12 @@ Rollup is the heavy step — budget ~2h per 20M rows on Docker-for-Mac (the wind
 percentile sorts dominate); emit reads only the small tables and takes ~1s, so
 re-emitting after a claims-file edit is free.
 
+Emit also writes the dashboard page itself (`index.html` + assets, embedded in the
+publisher binary from `web/site/`) into the same directory — Caddy serves one
+self-contained folder. Edit the page under `web/site/`, rebuild, re-emit.
+Preview locally: `python3 -m http.server 8901 -d dist` → http://localhost:8901
+(check the status bar shows `conservation ✓` and the stamps).
+
 Curated inputs (committed, git-reviewed):
 
 - `data/eth-usd-monthly.json` — monthly ETH/USD reference prices (gas → USD);
