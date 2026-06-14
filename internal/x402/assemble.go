@@ -132,7 +132,7 @@ func Assemble(
 		copy(methodSel, tx.Input[:4])
 
 		settlementKind := SettlementKind(tx.Input)
-		selfSettled := strings.EqualFold(tx.From.Hex(), to.Hex())
+		selfSettled := tx.From == to
 		validAfterRaw, validBeforeRaw, _ := DecodeAuthorizationWindow(tx.Input)
 		inputCopy := append([]byte(nil), tx.Input...)
 

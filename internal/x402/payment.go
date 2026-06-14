@@ -71,6 +71,11 @@ type Payment struct {
 	TokenSymbol      string     // "USDC"
 }
 
+// maxValidTimestamp is 2100-01-01 00:00:00 UTC in unix seconds. EIP-3009
+// window sentinels such as 2^256-1 ("no expiry") exceed this and are stored as
+// NULL rather than an overflowing timestamptz.
+const maxValidTimestamp = int64(4102444800)
+
 // unixToTimePtr converts an EIP-3009 window bound (unix seconds as a big.Int)
 // to a *time.Time, returning nil when the value is absent, non-positive (no
 // lower bound), or outside the range we store as a timestamp — e.g. the
@@ -81,7 +86,7 @@ func unixToTimePtr(v *big.Int) *time.Time {
 		return nil
 	}
 	secs := v.Int64()
-	if secs <= 0 || secs > 4102444800 { // > 2100-01-01 → treat as sentinel
+	if secs <= 0 || secs > maxValidTimestamp {
 		return nil
 	}
 	t := time.Unix(secs, 0).UTC()

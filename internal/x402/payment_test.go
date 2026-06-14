@@ -75,3 +75,32 @@ func TestPayment_FieldsAccept(t *testing.T) {
 	require.Equal(t, uint32(3), p.LogIndex)
 	require.NotNil(t, p.AmountRaw)
 }
+
+func TestUnixToTimePtr(t *testing.T) {
+	t.Parallel()
+	twoPow256Minus1 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	cases := []struct {
+		name    string
+		v       *big.Int
+		wantNil bool
+	}{
+		{"nil input", nil, true},
+		{"zero (no lower bound)", big.NewInt(0), true},
+		{"negative", big.NewInt(-1), true},
+		{"2^256-1 sentinel", twoPow256Minus1, true},
+		{"past year-2100 sentinel", big.NewInt(4102444801), true},
+		{"valid 2023 timestamp", big.NewInt(1_700_000_000), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			got := unixToTimePtr(c.v)
+			if c.wantNil {
+				require.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			require.Equal(t, time.Unix(1_700_000_000, 0).UTC(), *got)
+		})
+	}
+}
