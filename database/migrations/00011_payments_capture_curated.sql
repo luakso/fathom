@@ -17,6 +17,37 @@ ALTER TABLE payments
     ADD COLUMN IF NOT EXISTS token_symbol        TEXT        NULL,
     ADD COLUMN IF NOT EXISTS payer_account_type  TEXT        NULL;
 
+-- payment_classified_v1 is `SELECT p.*, … AS attribution, …`. Adding columns to
+-- payments shifts the trailing computed columns, so a plain CREATE OR REPLACE of
+-- the canonical view file (what init-db re-applies) fails with "cannot change
+-- name of view column attribution to settlement_kind". Drop and recreate it here
+-- so its stored column list matches the post-00011 p.* expansion — making
+-- init-db's re-apply a no-op (same pattern as migration 00008). Recreated
+-- byte-identical to database/views/payment_classified_v1.sql.
+DROP VIEW IF EXISTS payment_classified_v1;
+CREATE OR REPLACE VIEW payment_classified_v1 AS
+WITH allow AS (
+    SELECT chain, address
+    FROM facilitator_allowlist
+    WHERE since_version <= 1 AND (until_version IS NULL OR until_version > 1)
+),
+deny AS (
+    SELECT chain, called_contract
+    FROM contamination_denylist
+    WHERE since_version <= 1 AND (until_version IS NULL OR until_version > 1)
+)
+SELECT
+    p.*,
+    CASE
+        WHEN d.called_contract IS NOT NULL THEN 'contamination'
+        WHEN a.address         IS NOT NULL THEN 'agentic'
+        ELSE 'contested'
+    END AS attribution,
+    1 AS methodology_version
+FROM payments p
+LEFT JOIN deny  d ON d.chain = p.chain AND d.called_contract = p.called_contract
+LEFT JOIN allow a ON a.chain = p.chain AND a.address = p.facilitator;
+
 -- payment_x402_v1 — the v2 read view. Every stored row is in-set (x402), so the
 -- only label is facilitator_known (allowlist join, version 1). Kept byte-
 -- identical to database/views/payment_x402_v1.sql, which init-db re-applies.
@@ -36,7 +67,10 @@ LEFT JOIN allow a ON a.chain = p.chain AND a.address = p.facilitator;
 
 -- +goose Down
 -- +goose StatementBegin
+-- Drop both p.*-based views before dropping columns (they reference the new
+-- columns), then recreate payment_classified_v1 at its pre-00011 column shape.
 DROP VIEW IF EXISTS payment_x402_v1;
+DROP VIEW IF EXISTS payment_classified_v1;
 ALTER TABLE payments
     DROP COLUMN IF EXISTS settlement_kind,
     DROP COLUMN IF EXISTS self_settled,
@@ -48,4 +82,26 @@ ALTER TABLE payments
     DROP COLUMN IF EXISTS token_decimals,
     DROP COLUMN IF EXISTS token_symbol,
     DROP COLUMN IF EXISTS payer_account_type;
+CREATE OR REPLACE VIEW payment_classified_v1 AS
+WITH allow AS (
+    SELECT chain, address
+    FROM facilitator_allowlist
+    WHERE since_version <= 1 AND (until_version IS NULL OR until_version > 1)
+),
+deny AS (
+    SELECT chain, called_contract
+    FROM contamination_denylist
+    WHERE since_version <= 1 AND (until_version IS NULL OR until_version > 1)
+)
+SELECT
+    p.*,
+    CASE
+        WHEN d.called_contract IS NOT NULL THEN 'contamination'
+        WHEN a.address         IS NOT NULL THEN 'agentic'
+        ELSE 'contested'
+    END AS attribution,
+    1 AS methodology_version
+FROM payments p
+LEFT JOIN deny  d ON d.chain = p.chain AND d.called_contract = p.called_contract
+LEFT JOIN allow a ON a.chain = p.chain AND a.address = p.facilitator;
 -- +goose StatementEnd
