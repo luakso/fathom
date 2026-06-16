@@ -244,7 +244,10 @@ func BuildBackfillQuery(fromBlock, toBlock uint64) HyperSyncQuery {
 			{
 				Address: []string{strings.ToLower(x402.USDCProxyBase.Hex())},
 				Topics: [][]string{
-					{x402.AuthorizationUsedTopic.Hex()},
+					// topics[0] is an OR-set: match both AuthorizationUsed
+					// (→ payments) and AuthorizationCanceled (→ cancellations).
+					// Both ride the same JoinAll response on the USDC proxy.
+					{x402.AuthorizationUsedTopic.Hex(), x402.AuthorizationCanceledTopic.Hex()},
 				},
 			},
 		},

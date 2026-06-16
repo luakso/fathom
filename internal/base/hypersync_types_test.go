@@ -34,8 +34,9 @@ func TestHyperSyncQuery_JSONShape(t *testing.T) {
 	topics := logFilter["topics"].([]any)
 	require.Len(t, topics, 1)
 	topic0 := topics[0].([]any)
-	require.Len(t, topic0, 1)
+	require.Len(t, topic0, 2)
 	require.Equal(t, x402.AuthorizationUsedTopic.Hex(), topic0[0])
+	require.Equal(t, x402.AuthorizationCanceledTopic.Hex(), topic0[1])
 
 	// Selection is log-only — no transaction-level sighash filter. The query
 	// must omit "transactions" entirely (companions arrive via the JoinAll log
@@ -129,6 +130,14 @@ func TestHyperSyncBatch_DecodesRealWireShape(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(1_700_000_000), blk.Timestamp)       // 0x6553f100
 	require.Equal(t, big.NewInt(500_000_000), blk.BaseFeePerGas) // 0x1dcd6500
+}
+
+func TestBuildBackfillQuery_IncludesCancellationTopic(t *testing.T) {
+	q := BuildBackfillQuery(100, 200)
+	require.Len(t, q.Logs, 1, "still a single LogFilter")
+	topic0 := q.Logs[0].Topics[0]
+	require.Contains(t, topic0, x402.AuthorizationUsedTopic.Hex(), "used topic still present")
+	require.Contains(t, topic0, x402.AuthorizationCanceledTopic.Hex(), "canceled topic added")
 }
 
 func TestSighashHex(t *testing.T) {
