@@ -154,10 +154,10 @@ func allCandidatesLost(stats x402.AssembleStats) bool {
 	return expected > 0 && stats.Kept == 0
 }
 
-// decodeBatch converts the HyperSync wire batch into ([]Payment) ready for
-// Store.InsertBatch. Per-row decode failures (bad hex, missing companion)
-// log a warn inside Assemble and are skipped — only structural failures
-// (whole-row convert errors) abort.
+// decodeBatch converts the HyperSync wire batch into the []Payment and
+// []Cancellation rows ready for Store.InsertBatch. Per-row decode failures
+// (bad hex, missing companion) log a warn inside Assemble / ExtractCancellations
+// and are skipped — only structural failures (whole-row convert errors) abort.
 func decodeBatch(batch HyperSyncBatch) ([]x402.Payment, []x402.Cancellation, x402.AssembleStats, error) {
 	logs := make([]x402.Log, 0, len(batch.Data.Logs))
 	receiptByHash := map[common.Hash][]x402.Log{}
