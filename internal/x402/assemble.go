@@ -173,6 +173,11 @@ func Assemble(
 			TransactionIndex:     lg.TxIndex,
 			TokenDecimals:        USDCDecimals,
 			TokenSymbol:          "USDC",
+			TxValue:              tx.Value,
+			GasLimit:             tx.GasLimit,
+			L1Fee:                tx.L1Fee,
+			L1GasUsed:            tx.L1GasUsed,
+			L1GasPrice:           tx.L1GasPrice,
 		})
 		stats.Kept++
 	}

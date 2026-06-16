@@ -237,6 +237,43 @@ func TestAssemble_PopulatesCaptureFields(t *testing.T) {
 	require.Equal(t, "USDC", p.TokenSymbol)
 }
 
+// TestAssemble_PopulatesL1CaptureFields proves the Plan 2 fields flow from the
+// parent Transaction onto the assembled Payment.
+func TestAssemble_PopulatesL1CaptureFields(t *testing.T) {
+	facilitator := "0xfaC1000000000000000000000000000000000099"
+	payer := "0x000000000000000000000000aaaa000000000000000000000000000000000099"
+	payee := "0x000000000000000000000000bbbb000000000000000000000000000000000099"
+
+	tx := txFixture("0xbeef", facilitator, USDCProxyBase.Hex(), []byte{0xe3, 0xee, 0x16, 0x0e})
+	tx.Hash = common.HexToHash("0xbeef")
+	tx.Value = big.NewInt(0)
+	tx.GasLimit = 120_000
+	tx.L1Fee = big.NewInt(12_345)
+	tx.L1GasUsed = big.NewInt(1_600)
+	tx.L1GasPrice = big.NewInt(7)
+
+	logs := []Log{
+		{Address: USDCProxyBase, Topics: []common.Hash{AuthorizationUsedTopic, common.HexToHash(payer), common.BytesToHash(bytes32(0xab))}, TxHash: tx.Hash, LogIndex: 0, TxIndex: 5, BlockNumber: 42},
+		{Address: USDCProxyBase, Topics: []common.Hash{TransferTopic, common.HexToHash(payer), common.HexToHash(payee)}, Data: make32WithUint64(1_000_000), TxHash: tx.Hash, LogIndex: 1, TxIndex: 5, BlockNumber: 42},
+	}
+	block := Block{Number: 42, Timestamp: 1_700_000_000, Hash: common.HexToHash("0xb42"), BaseFeePerGas: big.NewInt(500_000_000)}
+
+	out, stats := Assemble(
+		logs,
+		map[common.Hash]Transaction{tx.Hash: tx},
+		map[common.Hash][]Log{tx.Hash: logs},
+		map[uint64]Block{42: block},
+	)
+	require.Equal(t, AssembleStats{AuthLogs: 1, Denied: 0, Kept: 1, Dropped: 0}, stats)
+	require.Len(t, out, 1)
+	p := out[0]
+	require.Equal(t, big.NewInt(0), p.TxValue)
+	require.Equal(t, uint64(120_000), p.GasLimit)
+	require.Equal(t, big.NewInt(12_345), p.L1Fee)
+	require.Equal(t, big.NewInt(1_600), p.L1GasUsed)
+	require.Equal(t, big.NewInt(7), p.L1GasPrice)
+}
+
 // helpers
 func bytes32(b byte) []byte {
 	out := make([]byte, 32)

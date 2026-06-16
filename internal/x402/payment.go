@@ -69,6 +69,13 @@ type Payment struct {
 	TransactionIndex uint32     // position of the tx in its block
 	TokenDecimals    uint8      // 6 for USDC
 	TokenSymbol      string     // "USDC"
+
+	// v2 capture fields (true settlement cost + over-provisioning) — Plan 2
+	TxValue    *big.Int // wei sent with the tx (~0 for x402); nil if absent
+	GasLimit   uint64   // tx gas limit; 0 if absent (limit vs GasUsed = over-provisioning)
+	L1Fee      *big.Int // OP-stack L1 data fee (wei). True cost = GasCostWei + L1Fee; nil pre-Ecotone
+	L1GasUsed  *big.Int // L1 gas units; nil if absent
+	L1GasPrice *big.Int // L1 base fee for the DA charge; nil if absent
 }
 
 // maxValidTimestamp is 2100-01-01 00:00:00 UTC in unix seconds. EIP-3009
