@@ -65,6 +65,9 @@ func Emit(ctx context.Context, pool *pgxpool.Pool, outDir string, claims []Claim
 	if econ.Claims, err = ResolveClaims(econ, claims); err != nil {
 		return fmt.Errorf("resolve claims: %w", err)
 	}
+	if econ.Concentration, err = BuildConcentration(ctx, tx); err != nil {
+		return fmt.Errorf("build concentration: %w", err)
+	}
 	if err := writeArtifact(outDir, "economy.json", version, through, econ); err != nil {
 		return err
 	}
@@ -74,6 +77,20 @@ func Emit(ctx context.Context, pool *pgxpool.Pool, outDir string, claims []Claim
 		return fmt.Errorf("build facilitators: %w", err)
 	}
 	if err := writeArtifact(outDir, "facilitators.json", version, through, fac); err != nil {
+		return err
+	}
+	payees, err := BuildEntities(ctx, tx, "payee")
+	if err != nil {
+		return fmt.Errorf("build payees: %w", err)
+	}
+	if err := writeArtifact(outDir, "payees.json", version, through, payees); err != nil {
+		return err
+	}
+	payers, err := BuildEntities(ctx, tx, "payer")
+	if err != nil {
+		return fmt.Errorf("build payers: %w", err)
+	}
+	if err := writeArtifact(outDir, "payers.json", version, through, payers); err != nil {
 		return err
 	}
 	if err := writeSite(outDir); err != nil {
@@ -99,6 +116,9 @@ func cubeStamp(ctx context.Context, q Querier) (through string, version int, err
 		    UNION ALL SELECT methodology_version FROM metrics_price_points_v2
 		    UNION ALL SELECT methodology_version FROM metrics_gas_daily_v2
 		    UNION ALL SELECT methodology_version FROM metrics_velocity_daily_v2
+		    UNION ALL SELECT methodology_version FROM entity_rank_v1
+		    UNION ALL SELECT methodology_version FROM entity_buckets_v1
+		    UNION ALL SELECT methodology_version FROM entity_concentration_v1
 		) versions`).Scan(&day, &versions, &minVersion); err != nil {
 		return "", 0, fmt.Errorf("cube stamp: %w", err)
 	}

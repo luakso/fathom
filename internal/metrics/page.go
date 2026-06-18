@@ -57,6 +57,7 @@ type EconomyPage struct {
 	Gas            GasSection                           `json:"gas"`
 	Velocity       VelocitySection                      `json:"velocity"`
 	Claims         []ClaimResult                        `json:"claims"`
+	Concentration  ConcentrationSection                 `json:"concentration"`
 }
 
 // lowerBound returns the inclusive lower day (YYYY-MM-DD) for a window, or ""
