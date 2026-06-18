@@ -3,6 +3,9 @@
 package metrics_test
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -128,4 +131,61 @@ func TestRebuildEntities_WindowAnchoring(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM entity_rank_v1 WHERE role='payee' AND address='0xOLD' AND window_name='30d'`).Scan(&in30))
 	require.Equal(t, int64(1), inAll)
 	require.Equal(t, int64(0), in30)
+}
+
+func TestEmit_EntityArtifactsAndConcentration(t *testing.T) {
+	ctx, db, pool := setupMetrics(t)
+	allowlist(t, ctx, db, "0xfac1")
+	seedPayments(t, ctx, db, []seedRow{
+		{"0xa", 0, "2026-06-05T10:00:00Z", "0xfac1", "0xp1", "0xS1", "100.00"},
+		{"0xb", 0, "2026-06-05T10:01:00Z", "0xfac1", "0xp2", "0xS2", "5.00"},
+	})
+	require.NoError(t, metrics.Rebuild(ctx, pool, testPrices(t)))
+
+	dir := t.TempDir()
+	require.NoError(t, metrics.Emit(ctx, pool, dir, nil))
+
+	var doc struct {
+		MethodologyVersion int `json:"methodology_version"`
+		Data               struct {
+			Role    string `json:"role"`
+			Windows map[string]struct {
+				Leaderboard []struct {
+					Address    string `json:"address"`
+					VolumeUSDC string `json:"volume_usdc"`
+				} `json:"leaderboard"`
+				Concentration struct {
+					TotalEntities int64  `json:"total_entities"`
+					TotalVolume   string `json:"total_volume"`
+				} `json:"concentration"`
+			} `json:"windows"`
+		} `json:"data"`
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "payees.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(b, &doc))
+	require.Equal(t, "payee", doc.Data.Role)
+	require.Equal(t, 1, doc.MethodologyVersion)
+	all := doc.Data.Windows["all"]
+	require.Equal(t, "0xS1", all.Leaderboard[0].Address)
+	require.Equal(t, int64(2), all.Concentration.TotalEntities)
+	require.Equal(t, "105.000000", all.Concentration.TotalVolume)
+
+	_, err = os.Stat(filepath.Join(dir, "payers.json"))
+	require.NoError(t, err)
+
+	var econ struct {
+		Data struct {
+			Concentration struct {
+				Windows map[string]map[string]struct {
+					TotalEntities int64 `json:"total_entities"`
+				} `json:"windows"`
+			} `json:"concentration"`
+		} `json:"data"`
+	}
+	eb, err := os.ReadFile(filepath.Join(dir, "economy.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(eb, &econ))
+	require.Equal(t, int64(2), econ.Data.Concentration.Windows["all"]["payee"].TotalEntities)
+	require.Contains(t, econ.Data.Concentration.Windows["all"], "payer")
 }
