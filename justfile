@@ -118,3 +118,15 @@ backfill from to:
         BASE__HYPERSYNC_URL="${BASE_HYPERSYNC_URL:-https://base.hypersync.xyz}" \
         BASE__HYPERSYNC_BEARER_TOKEN="${BASE_HYPERSYNC_BEARER_TOKEN:-}" \
         go run ./cmd/base-collector backfill --from-block {{from}} --to-block {{to}}
+
+# --- Anatomy (transaction dossier graph) ---
+
+# Build the Anatomy React frontend into web/anatomy/dist (embedded by the Go build)
+anatomy-web:
+    cd web/anatomy && npm install && npm run build
+
+# Run the Anatomy service locally against the exposed postgres port (serves API + UI on :8090)
+anatomy:
+    @set -a; . ./.env; set +a; \
+        APP_ENV=local DATABASE__URL="$DB_URL_HOST" \
+        go run ./cmd/anatomy --addr :8090
