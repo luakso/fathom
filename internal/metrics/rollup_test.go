@@ -104,6 +104,25 @@ func TestRebuild_Conservation(t *testing.T) {
 	require.Equal(t, int16(1), version)
 }
 
+func TestRebuild_MembershipConservation(t *testing.T) {
+	ctx, db, pool := setupMetrics(t)
+	allowlist(t, ctx, db, "0xfac1") // known
+	seedPayments(t, ctx, db, []seedRow{
+		{"0xa", 0, "2026-06-05T10:00:00Z", "0xfac1", "0xp1", "0xs1", "1.00"}, // known
+		{"0xb", 0, "2026-06-05T11:00:00Z", "0xfac1", "0xp2", "0xs1", "2.00"}, // known
+		{"0xc", 0, "2026-06-05T12:00:00Z", "0xfac2", "0xp3", "0xs2", "9.00"}, // unknown
+	})
+	require.NoError(t, metrics.Rebuild(ctx, pool, testPrices(t)))
+
+	var known, unknown, all int64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT txn_count FROM metrics_window_stats_v2 WHERE window_name='all' AND membership='known'`).Scan(&known))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT txn_count FROM metrics_window_stats_v2 WHERE window_name='all' AND membership='unknown'`).Scan(&unknown))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT txn_count FROM metrics_window_stats_v2 WHERE window_name='all' AND membership='all'`).Scan(&all))
+	require.Equal(t, all, known+unknown, "membership partition must reconcile to the independently-computed 'all' row")
+	require.Equal(t, int64(2), known)
+	require.Equal(t, int64(1), unknown)
+}
+
 func TestRebuild_Idempotent(t *testing.T) {
 	ctx, db, pool := setupMetrics(t)
 	seedPayments(t, ctx, db, []seedRow{

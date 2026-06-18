@@ -38,6 +38,25 @@ func TestBuildEconomy_MonthlySeriesCompleteness(t *testing.T) {
 	require.False(t, mar.Complete, "data_through_day is Mar 1 — month is cut at the right edge")
 }
 
+func TestBuildEconomy_GasL1L2Split(t *testing.T) {
+	ctx, db, pool := setupMetrics(t)
+	allowlist(t, ctx, db, "0xfac1")
+	// L2=1e15 wei ($2), L1=1e15 wei ($2). Single payment, known facilitator.
+	seedL1GasPayments(t, ctx, db, []seedL1GasRow{
+		{"0xa", 0, "2026-06-05T10:00:00Z", "0xfac1", "0xp1", "0xs1", "5.00", "1000000000000000", "1000000000000000"},
+	})
+	require.NoError(t, metrics.Rebuild(ctx, pool, testPrices(t)))
+
+	page, err := metrics.BuildEconomy(ctx, pool, mustTime(t, "2026-06-05T00:00:00Z"))
+	require.NoError(t, err)
+
+	g := page.Gas.Windows["all"].ByMembership["known"]
+	require.Equal(t, int64(1), g.TxnCount)
+	require.Equal(t, "0.001000", g.GasETHL2) // 1e15 wei = 0.001 ETH
+	require.Equal(t, "0.001000", g.GasETHL1)
+	require.Equal(t, "0.002000", g.GasETH) // total l1+l2
+}
+
 func TestBuildEconomy_TypicalPricePointsGasVelocity(t *testing.T) {
 	ctx, db, pool := setupMetrics(t)
 	allowlist(t, ctx, db, "0xfac1")
