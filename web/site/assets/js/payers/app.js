@@ -2,7 +2,7 @@
 // Boots /payers: loads payers.json, renders overview, activity buckets,
 // leaderboard + skew, concentration, demand-side fingerprint, verify log.
 import { $, $$ } from "../dom.js";
-import { num, fmtMoney, fmtCount, fmtInt, pct } from "../format.js";
+import { fmtMoney, fmtCount, fmtInt, pct } from "../format.js";
 import { loadEntity } from "../lib/entity-adapter.js";
 import { renderLeaderboard, shortAddr } from "../lib/leaderboard.js";
 import { renderScatter, classCounts } from "../lib/scatter.js";
