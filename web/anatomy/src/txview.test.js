@@ -63,4 +63,19 @@ describe('buildTxView', () => {
   it('passes through the basescan url', () => {
     expect(buildTxView(base, now).basescanUrl).toBe('https://basescan.org/tx/0xtxE')
   })
+
+  it('collapses fully-missing composite rows to a single dash', () => {
+    const v = buildTxView({ ...base, gasLimit: '', gasUsed: '', baseFee: '', maxFee: '', maxPriorityFee: '', l1GasPrice: '', l1GasUsed: '' }, now)
+    const gas = v.sections.find((s) => s.title === 'Gas & Fees')
+    expect(gas.rows.find((r) => r.k === 'gas limit / used').v).toBe('—')
+    expect(gas.rows.find((r) => r.k === 'base / max / prio').v).toBe('—')
+    expect(gas.rows.find((r) => r.k === 'L1 gas price / used').v).toBe('—')
+  })
+
+  it('keeps composite rows when sub-values are present', () => {
+    const v = buildTxView(base, now)
+    const gas = v.sections.find((s) => s.title === 'Gas & Fees')
+    expect(gas.rows.find((r) => r.k === 'base / max / prio').v).toBe('0.005 / 0.03 / 0.005 Gwei')
+    expect(gas.rows.find((r) => r.k === 'L1 gas price / used').v).toBe('0.123539468 Gwei / 3,307')
+  })
 })

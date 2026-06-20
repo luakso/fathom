@@ -2,9 +2,10 @@ import { weiToEth, gwei, groupDigits, relativeAge } from './format.js'
 
 const dash = (s) => (s == null || s === '' ? '—' : s)
 const eth = (wei) => (wei == null || wei === '' ? '—' : `${weiToEth(wei)} Ξ`)
+const allDash = (parts) => parts.every((p) => p === '—')
 
 function utilization(limit, used) {
-  if (!limit || !used) return `${groupDigits(limit)} / ${groupDigits(used)}`
+  if (!limit || !used) return '—'
   const pct = ((Number(used) / Number(limit)) * 100).toFixed(1)
   return `${groupDigits(limit)} / ${groupDigits(used)} (${pct}%)`
 }
@@ -42,10 +43,17 @@ export function buildTxView(f, nowMs) {
       { k: 'total fee', v: eth(f.totalFeeWei) },
       { k: 'gas price', v: f.effectiveGasPrice ? `${gwei(f.effectiveGasPrice)} Gwei` : '—' },
       { k: 'gas limit / used', v: utilization(f.gasLimit, f.gasUsed) },
-      { k: 'base / max / prio', v: `${gwei(f.baseFee)} / ${gwei(f.maxFee)} / ${gwei(f.maxPriorityFee)} Gwei` },
+      { k: 'base / max / prio', v: (() => {
+        const parts = [gwei(f.baseFee), gwei(f.maxFee), gwei(f.maxPriorityFee)]
+        return allDash(parts) ? '—' : `${parts.join(' / ')} Gwei`
+      })() },
       { k: 'L2 fee', v: eth(f.gasCostWei) },
       { k: 'L1 fee', v: eth(f.l1Fee) },
-      { k: 'L1 gas price / used', v: `${gwei(f.l1GasPrice)} Gwei / ${groupDigits(f.l1GasUsed)}` },
+      { k: 'L1 gas price / used', v: (() => {
+        const price = gwei(f.l1GasPrice)
+        const used = groupDigits(f.l1GasUsed)
+        return price === '—' && used === '—' ? '—' : `${price} Gwei / ${used}`
+      })() },
     ],
   }
 
