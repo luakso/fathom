@@ -6,15 +6,18 @@ import { graphToFlow, applyStats } from './adapter.js'
 import TransactionNode from './nodes/TransactionNode.jsx'
 import EventNode from './nodes/EventNode.jsx'
 import AddressNode from './nodes/AddressNode.jsx'
+import TxDetailPanel from './panels/TxDetailPanel.jsx'
 
 export default function App() {
   const [chain, setChain] = useState('base')
   const [hash, setHash] = useState('')
   const [flow, setFlow] = useState({ nodes: [], edges: [] })
   const [err, setErr] = useState('')
+  const [selectedTx, setSelectedTx] = useState(null)
 
   const trace = useCallback(async () => {
     setErr('')
+    setSelectedTx(null)
     try {
       const graph = await fetchTx(chain, hash.trim())
       setFlow(graphToFlow(graph))
@@ -23,6 +26,10 @@ export default function App() {
       setFlow({ nodes: [], edges: [] })
     }
   }, [chain, hash])
+
+  const onNodeClick = useCallback((_, node) => {
+    if (node?.data?.kind === 'transaction') setSelectedTx(node.data)
+  }, [])
 
   const expandStats = useCallback(async (addrId) => {
     const addr = addrId.replace(/^addr:/, '')
@@ -64,11 +71,12 @@ export default function App() {
         <button onClick={trace}>trace</button>
       </div>
       {err && <div className="banner-err">{err}</div>}
-      <div style={{ flex: 1 }}>
-        <ReactFlow nodes={decoratedNodes} edges={flow.edges} nodeTypes={nodeTypes} fitView>
+      <div style={{ flex: 1, position: 'relative' }}>
+        <ReactFlow nodes={decoratedNodes} edges={flow.edges} nodeTypes={nodeTypes} onNodeClick={onNodeClick} fitView>
           <Background />
           <Controls />
         </ReactFlow>
+        {selectedTx && <TxDetailPanel node={selectedTx} onClose={() => setSelectedTx(null)} />}
       </div>
     </div>
   )
