@@ -239,6 +239,7 @@ func TestDossier_UnknownFacilitatorNoLabel(t *testing.T) {
 	require.NotNil(t, fac)
 	require.Equal(t, "", fac.Fields["entityLabel"])
 	require.Equal(t, "false", fac.Fields["facilitatorKnown"])
+	require.Equal(t, "false", fac.Fields["selfSettled"])
 }
 
 func TestDossier_SelfSettledFlag(t *testing.T) {

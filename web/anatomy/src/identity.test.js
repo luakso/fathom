@@ -14,6 +14,7 @@ describe('identityView', () => {
     expect(v.name).toBe('')
     expect(v.knownLabel).toBe('unknown ⚠')
     expect(v.knownTone).toBe('unknown')
+    expect(v.selfSettled).toBe(false)
   })
   it('marks self-settled', () => {
     expect(identityView({ facilitatorKnown: 'true', selfSettled: 'true' }).selfSettled).toBe(true)

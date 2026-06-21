@@ -41,7 +41,7 @@ export default function AddressNode({ data }) {
             p.available ? (
               <button key={p.kind} className="stat-btn" style={{ borderColor: accent, color: accent }} onClick={() => onExpandStats?.(data.id)}>+ {p.kind}</button>
             ) : (
-              <span key={p.kind} className="provider-stub">{p.kind}</span>
+              <span key={p.kind} className="provider-stub">{p.kind} (soon)</span>
             ),
           )}
         </div>
