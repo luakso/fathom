@@ -184,3 +184,30 @@ func TestEmit_WritesSiteFiles(t *testing.T) {
 	// Second emit overwrites cleanly (idempotent).
 	require.NoError(t, metrics.Emit(ctx, pool, dir, nil))
 }
+
+func TestEmit_WritesEntityPages(t *testing.T) {
+	ctx, db, pool := setupMetrics(t)
+	seedPayments(t, ctx, db, []seedRow{
+		{"0xa", 0, "2026-06-08T10:00:00Z", "0xfac2", "0xp1", "0xs1", "2.00"},
+	})
+	require.NoError(t, metrics.Rebuild(ctx, pool, testPrices(t)))
+
+	dir := t.TempDir()
+	require.NoError(t, metrics.Emit(ctx, pool, dir, nil))
+
+	for _, page := range []struct{ html, script string }{
+		{"payees.html", "assets/js/payees/app.js"},
+		{"payers.html", "assets/js/payers/app.js"},
+	} {
+		b, err := os.ReadFile(filepath.Join(dir, page.html))
+		require.NoError(t, err, "%s must be emitted", page.html)
+		require.Contains(t, string(b), `src="`+page.script+`"`)
+		st, err := os.Stat(filepath.Join(dir, page.script))
+		require.NoError(t, err, "%s must be emitted", page.script)
+		require.NotZero(t, st.Size())
+		require.Contains(t, string(b), `href="index.html"`)
+	}
+	idx, err := os.ReadFile(filepath.Join(dir, "index.html"))
+	require.NoError(t, err)
+	require.Contains(t, string(idx), `href="payees.html"`)
+}

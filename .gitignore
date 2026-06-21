@@ -45,3 +45,6 @@ CLAUDE.md
 # Visual brainstorming companion
 .superpowers/
 /anatomy
+
+# Test tooling node_modules
+web/site-tests/node_modules/
