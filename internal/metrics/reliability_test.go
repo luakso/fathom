@@ -10,6 +10,32 @@ import (
 	"github.com/lukostrobl/fathom/internal/metrics"
 )
 
+// A settlement carrying only valid_before (no valid_after), settled after that
+// bound, must NOT count toward expired — expired/not_yet_valid are gated on the
+// windowed (both-bounds) subset so the numerator can never exceed windowed_count,
+// the rate denominator. Guards against a published rate > 1.
+func TestRebuildReliability_PartialWindowNotCountedExpired(t *testing.T) {
+	ctx, db, pool := setupMetrics(t)
+	allowlist(t, ctx, db, "0xfac1")
+	seedWindowedPayments(t, ctx, db, []seedWindowedRow{
+		// only valid_before set, settled AFTER it — "expired" only if NOT gated on both bounds
+		{"0xa", 0, "2026-06-10T12:00:00Z", "0xfac1", "0xp1", "0xs1", "1.00", "", "2026-06-10T11:00:00Z"},
+		// a proper fully-windowed, in-window row so windowed_count > 0
+		{"0xb", 0, "2026-06-10T10:30:00Z", "0xfac1", "0xp2", "0xs1", "2.00", "2026-06-10T10:00:00Z", "2026-06-10T11:00:00Z"},
+	})
+	require.NoError(t, metrics.Rebuild(ctx, pool, testPrices(t)))
+
+	var settle, windowed, expired int64
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT settlement_count, windowed_count, expired_count
+		FROM metrics_reliability_window_v2 WHERE window_name='all' AND membership='all'`).
+		Scan(&settle, &windowed, &expired))
+	require.Equal(t, int64(2), settle)
+	require.Equal(t, int64(1), windowed, "only 0xb carries both bounds")
+	require.Equal(t, int64(0), expired, "partial-window 0xa must NOT count as expired")
+	require.LessOrEqual(t, expired, windowed, "numerator must stay within the windowed denominator")
+}
+
 // Windowed-subset latency, expired/not-yet-valid counts, and the all==known+unknown
 // reconciliation, all computed on a tiny hand-checkable fixture anchored to 2026-06-10.
 func TestRebuildReliability_WindowStats(t *testing.T) {

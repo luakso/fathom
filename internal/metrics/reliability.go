@@ -25,8 +25,11 @@ base AS (
         CASE WHEN p.facilitator_known THEN 'known' ELSE 'unknown' END AS membership,
         p.methodology_version,
         (p.valid_after IS NOT NULL AND p.valid_before IS NOT NULL) AS windowed,
-        (p.valid_before IS NOT NULL AND p.block_timestamp > p.valid_before) AS expired,
-        (p.valid_after  IS NOT NULL AND p.block_timestamp < p.valid_after)  AS not_yet_valid,
+        -- expired/not_yet_valid are gated on the WINDOWED subset (both bounds) so the
+        -- numerator stays a subset of windowed_count — the rate denominator — and can
+        -- never exceed 1. (EIP-3009 co-presents both bounds, so this is belt-and-braces.)
+        (p.valid_after IS NOT NULL AND p.valid_before IS NOT NULL AND p.block_timestamp > p.valid_before) AS expired,
+        (p.valid_after IS NOT NULL AND p.valid_before IS NOT NULL AND p.block_timestamp < p.valid_after)  AS not_yet_valid,
         CASE WHEN p.valid_after IS NOT NULL AND p.valid_before IS NOT NULL
              THEN EXTRACT(EPOCH FROM (p.block_timestamp - p.valid_after)) END AS latency_s
     FROM payment_x402_v1 p
@@ -93,8 +96,8 @@ SELECT
     min(methodology_version),
     count(*),
     count(*) FILTER (WHERE valid_after IS NOT NULL AND valid_before IS NOT NULL),
-    count(*) FILTER (WHERE valid_before IS NOT NULL AND block_timestamp > valid_before),
-    count(*) FILTER (WHERE valid_after  IS NOT NULL AND block_timestamp < valid_after),
+    count(*) FILTER (WHERE valid_after IS NOT NULL AND valid_before IS NOT NULL AND block_timestamp > valid_before),
+    count(*) FILTER (WHERE valid_after IS NOT NULL AND valid_before IS NOT NULL AND block_timestamp < valid_after),
     0
 FROM payment_x402_v1
 GROUP BY 1, 2, 3;
