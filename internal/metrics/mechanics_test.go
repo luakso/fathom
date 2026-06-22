@@ -3,6 +3,9 @@
 package metrics_test
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -130,4 +133,44 @@ func TestBuildMechanics_Shape(t *testing.T) {
 	require.Equal(t, int64(2), all.BlockDensity.MaxPerBlock, "both in block 400")
 	require.GreaterOrEqual(t, all.Cost.BreakevenTxnCount, int64(0)) // cost block populated from gas cube
 	require.Contains(t, all.ByMembership, "known")
+}
+
+func TestEmit_WritesMechanics(t *testing.T) {
+	ctx, db, pool := setupMetrics(t)
+	allowlist(t, ctx, db, "0xfac1")
+	seedMechanicsPayments(t, ctx, db, []seedMechRow{
+		{"0xa", 0, "2026-06-10T10:00:00Z", "0xfac1", "0xp1", "0xs1", "1.00", 2, "1000", "100", "21000", "42000", "0", `\x11111111`, "transfer", `\xa1`, 500, "2026-06-10T09:00:00Z", "2026-06-10T10:00:00Z"},
+		{"0xb", 0, "2026-06-10T10:00:00Z", "0xfac2", "0xp2", "0xs1", "2.00", 0, "", "", "21000", "21000", "0", `\x11111111`, "transfer", `\xa2`, 500, "", ""},
+	})
+	require.NoError(t, metrics.Rebuild(ctx, pool, testPrices(t)))
+
+	dir := t.TempDir()
+	require.NoError(t, metrics.Emit(ctx, pool, dir, nil))
+
+	b, err := os.ReadFile(filepath.Join(dir, "mechanics.json"))
+	require.NoError(t, err)
+	var doc struct {
+		Data struct {
+			Windows map[string]struct {
+				SettlementCount int64 `json:"settlement_count"`
+				Fee             struct {
+					TxType map[string]int64 `json:"tx_type"`
+				} `json:"fee"`
+				BlockDensity struct {
+					MaxPerBlock int64 `json:"max_per_block"`
+				} `json:"block_density"`
+				SelectorMix  []map[string]any `json:"selector_mix"`
+				ByMembership map[string]struct {
+					SettlementCount int64 `json:"settlement_count"`
+				} `json:"by_membership"`
+			} `json:"windows"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(b, &doc))
+	all := doc.Data.Windows["all"]
+	require.Equal(t, int64(2), all.SettlementCount)
+	require.Equal(t, int64(2), all.BlockDensity.MaxPerBlock)
+	require.NotEmpty(t, all.SelectorMix)
+	require.Equal(t, all.SettlementCount,
+		all.ByMembership["known"].SettlementCount+all.ByMembership["unknown"].SettlementCount)
 }
