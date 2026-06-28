@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   reshapeReliability, checkReliabilityIntegrity, crossCheckEconomyReliability, latencyBars, LAT_BUCKETS,
-} from "../site/assets/js/lib/reliability-adapter.js";
+} from "../app/assets/js/lib/reliability-adapter.js";
 import { reliabilityDoc, economyDoc } from "./fixtures/reliability.js";
 
 describe("reshapeReliability", () => {

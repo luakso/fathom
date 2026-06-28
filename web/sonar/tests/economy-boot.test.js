@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const distEco = resolve(here, "../../dist/economy.json");
-const htmlPath = resolve(here, "../site/index.html");
+const htmlPath = resolve(here, "../app/index.html");
 
 const haveArtifacts = existsSync(distEco);
 
@@ -30,7 +30,7 @@ describe.runIf(haveArtifacts)("economy page daily tape", () => {
   });
 
   it("defaults to the 30D tape, re-slices on toggle, and never shades", async () => {
-    await import("../site/assets/js/app.js");
+    await import("../app/assets/js/app.js");
     await settle("#dsvg");
 
     // default timeframe is 30D

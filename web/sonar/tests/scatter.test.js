@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { renderScatter, classCounts } from "../site/assets/js/lib/scatter.js";
+import { renderScatter, classCounts } from "../app/assets/js/lib/scatter.js";
 import { payeeDoc, sparseDoc } from "./fixtures/entities.js";
 
 const rows = payeeDoc.data.windows.all.leaderboard;

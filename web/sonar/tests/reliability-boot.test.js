@@ -4,19 +4,19 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const distRel = resolve(here, "../../dist/mechanics.json");
+const distRel = resolve(here, "../../dist/reliability.json");
 const distEco = resolve(here, "../../dist/economy.json");
-const htmlPath = resolve(here, "../site/mechanics.html");
+const htmlPath = resolve(here, "../app/reliability.html");
 
 const haveArtifacts = existsSync(distRel) && existsSync(distEco);
 
-describe.runIf(haveArtifacts)("mechanics page boots against real dist artifacts", () => {
+describe.runIf(haveArtifacts)("reliability page boots against real dist artifacts", () => {
   beforeEach(() => {
     const html = readFileSync(htmlPath, "utf8");
     const body = html.replace(/[\s\S]*<body>/, "").replace(/<\/body>[\s\S]*/, "");
     document.body.innerHTML = body;
     const files = {
-      "./mechanics.json": readFileSync(distRel, "utf8"),
+      "./reliability.json": readFileSync(distRel, "utf8"),
       "./economy.json": readFileSync(distEco, "utf8"),
     };
     vi.stubGlobal("fetch", (url) => {
@@ -28,14 +28,14 @@ describe.runIf(haveArtifacts)("mechanics page boots against real dist artifacts"
   });
 
   it("reaches conservation ✓ with all panels populated", async () => {
-    await import("../site/assets/js/mechanics/app.js");
+    await import("../app/assets/js/reliability/app.js");
     for (let i = 0; i < 50 && !document.querySelector("#shell").textContent; i++) {
       await new Promise(r => setTimeout(r, 0));
     }
     expect(document.querySelector("#st-cons").textContent).toBe("conservation ✓");
     expect(document.querySelector("#fatal").classList.contains("open")).toBe(false);
-    expect(document.querySelector("#ue-stats").textContent).toMatch(/COST/);
-    expect(document.querySelector("#wraptable").textContent).toMatch(/transferWithAuthorization/);
+    expect(document.querySelector("#ov-stats").textContent).toMatch(/SETTLEMENTS/);
+    expect(document.querySelector("#lat-caveat").textContent).toMatch(/validAfter/);
     expect(document.querySelector("#st-through").textContent).toBe("2026-06-06");
   });
 });

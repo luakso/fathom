@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { renderLeaderboard, shortAddr } from "../site/assets/js/lib/leaderboard.js";
+import { renderLeaderboard, shortAddr } from "../app/assets/js/lib/leaderboard.js";
 import { payeeDoc, sparseDoc } from "./fixtures/entities.js";
 
 const rows = payeeDoc.data.windows.all.leaderboard;

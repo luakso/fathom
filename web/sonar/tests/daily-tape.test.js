@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tapeSlice } from "../site/assets/js/charts.js";
+import { tapeSlice } from "../app/assets/js/charts.js";
 
 // 120 days of compact tape rows: [day, txn_count, volume_cents]
 const days = Array.from({ length: 120 }, (_, i) => {

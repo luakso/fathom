@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classify, CLASSES, FP } from "../site/assets/js/lib/fingerprint.js";
+import { classify, CLASSES, FP } from "../app/assets/js/lib/fingerprint.js";
 import { payeeDoc } from "./fixtures/entities.js";
 
 // Note: spec listed slice(0,8) but fixture address prefixes are 9-char identifiers

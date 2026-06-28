@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { renderBuckets, BUCKET_ORDER } from "../site/assets/js/lib/buckets.js";
+import { renderBuckets, BUCKET_ORDER } from "../app/assets/js/lib/buckets.js";
 import { payeeDoc, sparseDoc } from "./fixtures/entities.js";
 
 const buckets = payeeDoc.data.windows.all.buckets;

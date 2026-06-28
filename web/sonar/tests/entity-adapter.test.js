@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { reshapeEntity, checkEntityIntegrity, crossCheckEconomy, USD_TOLERANCE }
-  from "../site/assets/js/lib/entity-adapter.js";
+  from "../app/assets/js/lib/entity-adapter.js";
 import { payeeDoc, sparseDoc, economyDoc } from "./fixtures/entities.js";
 
 describe("reshapeEntity", () => {

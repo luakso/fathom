@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   reshapeMechanics, checkMechanicsIntegrity, crossCheckEconomyMechanics,
   selectorLabel, txTypeOther,
-} from "../site/assets/js/lib/mechanics-adapter.js";
+} from "../app/assets/js/lib/mechanics-adapter.js";
 import { mechanicsDoc, economyDoc } from "./fixtures/mechanics.js";
 
 describe("reshapeMechanics", () => {

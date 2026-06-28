@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createTray } from "../site/assets/js/lib/report-tray.js";
+import { createTray } from "../app/assets/js/lib/report-tray.js";
 
 function trayDom() {
   document.body.innerHTML = `
