@@ -132,6 +132,6 @@ export function rVelocity(){
   $("#vhover").addEventListener("mouseleave", () => { $("#v-readout").textContent = "│ = day's max minute · ▪ = p99 of active minutes"; });
   const vw = data.velocity.windows;
   $("#velostats").innerHTML = ["7d","30d","all"].map(k =>
-    `<div class="kv"><span class="k">peak · ${k.toUpperCase()}</span><span class="v">${fmtInt(vw[k].known.max_per_min)}/min</span></div>`).join("") +
+    `<div class="kv"><span class="k">peak · ${k.toUpperCase()}</span><span class="v">${fmtInt(vw[k].max_per_min)}/min</span></div>`).join("") +
     `<div class="kv"><span class="k">median p99 (active)</span><span class="v">${fmtInt(medianOf(days.map(d => d[2])))}/min</span></div>`;
 }

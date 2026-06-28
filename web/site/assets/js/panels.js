@@ -1,65 +1,37 @@
 // Non-chart panel renderers, moved verbatim from the mockup.
 import { $ } from "./dom.js";
-import { num, fmtInt, fmtMoney, fmtMoneyFull, fmtCount, fmtAmt, pct, BANDDEF, ATTRS, priceRead, claimVerdict } from "./format.js";
+import { num, fmtInt, fmtMoney, fmtMoneyFull, fmtCount, fmtAmt, pct, BANDDEF, priceRead, claimVerdict } from "./format.js";
 import { USD_TOLERANCE } from "./adapter.js";
 import { state, data, winLabel } from "./state.js";
 
 /* ———————— 1 OVERVIEW ———————— */
 export function rOverview(){
-  const w = data.windows[state.win], a = w.by_membership;
+  const w = data.windows[state.win];
+  const avg = num(w.volume_usdc) / (w.txn_count || 1);
   $("#ov-win").textContent = "· " + winLabel[state.win];
   $("#ov-stats").innerHTML = `
-    <div class="bignum">${fmtCount(w.txn_count)}<small>X402 PAYMENTS</small></div>
-    <div class="bignum">${fmtMoney(w.volume_usdc)}<small>VOLUME</small></div>
-    <div class="bignum c-ag glow">${fmtMoney(a.known.volume_usdc)}<small>KNOWN-FACILITATOR USD</small></div>
-    <div class="bignum c-ag">${pct(a.known.volume_usdc, w.volume_usdc)}<small>KNOWN SHARE OF $</small></div>`;
-  const mk = (el, get, tot) => {
-    el.innerHTML = ATTRS.map(([k]) => {
-      const p = 100*num(get(a[k]))/num(tot);
-      const cls = k==="known"?"ag":"ct";
-      return `<i class="${cls}" style="width:${p}%" title="${k} ${p.toFixed(2)}%"></i>`;
-    }).join("");
-  };
-  mk($("#ov-usd"), x=>x.volume_usdc, w.volume_usdc);
-  mk($("#ov-tx"),  x=>x.txn_count,  w.txn_count);
-  $("#ov-usd-r").innerHTML = `<span class="c-ag">known ${pct(a.known.volume_usdc,w.volume_usdc)}</span> · <span class="c-ct">unknown ${pct(a.unknown.volume_usdc,w.volume_usdc)}</span>`;
-  $("#ov-tx-r").innerHTML  = `<span class="c-ag">known ${pct(a.known.txn_count,w.txn_count)}</span> · <span class="c-ct">unknown ${pct(a.unknown.txn_count,w.txn_count)}</span>`;
-  $("#ov-inv").innerHTML = `<b>membership:</b> known-facilitator = <span class="c-ag">${pct(a.known.txn_count,w.txn_count)}</span> of payments and <span class="c-ag">${pct(a.known.volume_usdc,w.volume_usdc)}</span> of dollars — the rest is the unknown-facilitator discovery frontier.`;
-  $("#ov-denom").textContent = "x402 settlements on Base · " + winLabel[state.win] + " · windows anchored to data-through day";
-}
-
-/* ———————— 4 SPLIT ———————— */
-export function rSplit(){
-  const w = data.windows[state.win], a = w.by_membership;
-  $("#sp-win").textContent = "· " + winLabel[state.win];
-  $("#splittable").innerHTML = `
-    <thead><tr><th>membership</th><th>tx</th><th>tx%</th><th>usd</th><th>usd%</th></tr></thead>
-    <tbody>${ATTRS.map(([k,cls]) => `<tr>
-      <td class="${cls}" style="font-weight:700">${k}</td>
-      <td>${fmtInt(a[k].txn_count)}</td><td>${pct(a[k].txn_count,w.txn_count)}</td>
-      <td>${fmtMoney(a[k].volume_usdc)}</td><td>${pct(a[k].volume_usdc,w.volume_usdc)}</td>
-    </tr>`).join("")}
-    <tr><td style="color:var(--dim);font-weight:700">total</td>
-      <td style="font-weight:700">${fmtInt(w.txn_count)}</td><td>100%</td>
-      <td style="font-weight:700">${fmtMoney(w.volume_usdc)}</td><td>100%</td></tr></tbody>`;
-  $("#sp-note").innerHTML = `known-facilitator mean ${fmtAmt(data.typical[state.win].known.avg_usdc)} vs unknown mean ${fmtAmt(data.typical[state.win].unknown.avg_usdc)} — <b>allowlisted settlement vs the discovery frontier.</b>`;
-  $("#sp-denom").textContent = `facilitator allowlist v${data.meta.methodology_version} · full address list in facilitators.json · splits sum to totals exactly`;
+    <div class="bignum c-ag glow">${fmtCount(w.txn_count)}<small>X402 PAYMENTS</small></div>
+    <div class="bignum c-ag">${fmtMoney(w.volume_usdc)}<small>VOLUME</small></div>
+    <div class="bignum">${fmtAmt(avg.toFixed(6))}<small>TYPICAL PAYMENT (avg)</small></div>
+    <div class="bignum">${fmtInt(w.by_band.whale.txn_count + w.by_band.mid.txn_count + w.by_band.small.txn_count + w.by_band.micro.txn_count + w.by_band.dust.txn_count)}<small>SETTLEMENTS</small></div>`;
+  // amount-band distribution bar (share of verified volume by band)
+  const bands = BANDDEF.map(([k]) => [k, num(w.by_band[k].volume_usdc)]);
+  const totalV = bands.reduce((s,[,v]) => s+v, 0) || 1;
+  $("#ov-bands").innerHTML = bands.map(([k,v]) => {
+    const p = 100*v/totalV;
+    return `<span class="seg" style="width:${p}%" title="${k} ${p.toFixed(1)}% of volume"><b>${k}</b></span>`;
+  }).join("");
+  $("#ov-denom").textContent = "x402 payment = a USDC authorization settled by a known facilitator (EIP-3009) on Base · " + winLabel[state.win] + " · windows anchored to data-through day";
 }
 
 /* ———————— 5 SHAPE ———————— */
 export function rShape(){
   const t = data.typical[state.win];
-  const xMed = num(t.known.avg_usdc)/num(t.known.median_usdc);
+  const xMed = num(t.avg_usdc)/num(t.median_usdc);
   $("#shp-win").textContent = "· " + winLabel[state.win];
   $("#shp-big").innerHTML = `
-    <div class="bignum c-ag glow">${fmtAmt(t.known.median_usdc)}<small>MEDIAN KNOWN-FACILITATOR PAYMENT</small></div>
-    <div class="bignum">${fmtAmt(t.known.avg_usdc)}<small>MEAN — ${isFinite(xMed) ? Math.round(xMed).toLocaleString() : "—"}× THE MEDIAN</small></div>`;
-  $("#typtable").innerHTML = `
-    <thead><tr><th>membership</th><th>median</th><th>mean</th><th>tx</th></tr></thead>
-    <tbody>${[["known","c-ag"],["unknown","c-ct"],["all",""]].map(([k,cls]) => `<tr>
-      <td class="${cls}" style="font-weight:700">${k}</td>
-      <td${k==="known"?' style="color:var(--agentic);font-weight:700"':""}>${fmtAmt(t[k].median_usdc)}</td>
-      <td>${fmtAmt(t[k].avg_usdc)}</td><td>${fmtInt(t[k].txn_count)}</td></tr>`).join("")}</tbody>`;
+    <div class="bignum c-ag glow">${fmtAmt(t.median_usdc)}<small>MEDIAN PAYMENT</small></div>
+    <div class="bignum">${fmtAmt(t.avg_usdc)}<small>MEAN — ${isFinite(xMed) ? Math.round(xMed).toLocaleString() : "—"}× THE MEDIAN</small></div>`;
   const b = data.windows[state.win].by_band;
   const tx = state.bMetric === "tx";
   const get = r => tx ? r.txn_count : num(r.volume_usdc);
@@ -98,17 +70,17 @@ export function rPrice(){
 
 /* ———————— 7 GAS ———————— */
 export function rGas(){
-  const g = data.gas.windows[state.win], kn = g.by_membership.known;
+  const g = data.gas.windows[state.win], kn = g;
   const p = 100*kn.breakeven_txn_count/kn.txn_count;
   $("#gas-win").textContent = "· " + winLabel[state.win];
   $("#gas-pct").textContent = isFinite(p) ? p.toFixed(1) + "%" : "—";
   const cells = 40, f = isFinite(p) ? Math.min(cells, Math.round(cells*p/100)) : 0;
   $("#gas-meter").innerHTML = `<span class="f">${"▓".repeat(f)}</span><span class="e">${"░".repeat(cells-f)}</span>`;
-  const vol = data.windows[state.win].by_membership.known.volume_usdc;
+  const vol = data.windows[state.win].volume_usdc;
   $("#gas-kv").innerHTML = `
-    <div class="kv"><span class="k">cost L1+L2 (known)</span><span class="v">${num(kn.gas_eth).toFixed(3)} ETH <small>≈ ${fmtMoneyFull(kn.gas_usd)}</small></span></div>
+    <div class="kv"><span class="k">cost L1+L2</span><span class="v">${num(kn.gas_eth).toFixed(3)} ETH <small>≈ ${fmtMoneyFull(kn.gas_usd)}</small></span></div>
     <div class="kv"><span class="k">L1 / L2 (ETH)</span><span class="v">${num(kn.gas_eth_l1).toFixed(3)} / ${num(kn.gas_eth_l2).toFixed(3)}</span></div>
-    <div class="kv"><span class="k">value moved (known)</span><span class="v">${fmtMoneyFull(vol)}</span></div>
+    <div class="kv"><span class="k">value moved</span><span class="v">${fmtMoneyFull(vol)}</span></div>
     <div class="kv"><span class="k">cost per $1 settled</span><span class="v">${kn.gas_cents_per_dollar === null ? "—" : num(kn.gas_cents_per_dollar).toFixed(2)+"¢"}</span></div>
     <div class="kv"><span class="k">breakeven payments</span><span class="v c-cm">${fmtInt(kn.breakeven_txn_count)} <small>of ${fmtInt(kn.txn_count)}</small></span></div>`;
   $("#gasbands").innerHTML = `
@@ -143,17 +115,10 @@ export function rClaims(){
 
 /* ———————— LOG ———————— */
 export function rShell(){
-  const w = data.windows.all, a = w.by_membership;
-  const sumN = a.known.txn_count + a.unknown.txn_count;
-  const sum$ = num(a.known.volume_usdc) + num(a.unknown.volume_usdc);
-  const okN = sumN === w.txn_count, ok$ = Math.abs(sum$ - num(w.volume_usdc)) <= USD_TOLERANCE;
+  const w = data.windows.all;
   $("#shell").innerHTML = `
-    <div><span class="ps">$</span> <span class="cmd">fathom verify --conservation --window all</span></div>
-    <div class="out">tx&nbsp;: ${fmtInt(a.known.txn_count)} + ${fmtInt(a.unknown.txn_count)} = ${fmtInt(sumN)} <span class="ok">${okN?"✓":"✗"}</span></div>
-    <div class="out">usd: ${fmtMoney(a.known.volume_usdc)} + ${fmtMoney(a.unknown.volume_usdc)} = ${fmtMoneyFull(sum$)} <span class="ok">${ok$?"✓":"✗"}</span></div>
-    <div><span class="ps">$</span> <span class="cmd">jq '.methodology_version, .generated_at, .data_through_day' dist/economy.json</span></div>
-    <div class="out">${data.meta.methodology_version} · ${data.meta.generated_at} · ${data.meta.data_through_day}</div>
-    <div><span class="ps">$</span> <span class="cmd">fathom catalog --deferred</span></div>
-    <div class="out"><span class="warn">R1</span> reliability → cancellations / auth-window · <span class="warn">P1</span> payees → entity_rank_v1</div>
-    <div class="out">every stored row is x402 — labeled known or unknown.<span class="cursor" style="margin-left:6px"></span></div>`;
+    <div><span class="ps">$</span> <span class="cmd">jq '.scope, .methodology_version, .data_through_day' dist/economy.json</span></div>
+    <div class="out">x402-attributed · v${data.meta.methodology_version} · ${data.meta.data_through_day}</div>
+    <div class="out">${fmtInt(w.txn_count)} verified x402 payments · ${fmtMoney(w.volume_usdc)} <span class="ok">✓</span></div>
+    <div class="out">every shown row is settled by a known x402 facilitator.<span class="cursor" style="margin-left:6px"></span></div>`;
 }

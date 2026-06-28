@@ -1,15 +1,14 @@
 // Loads the canonical economy.json and reshapes it into the view-model the
 // renderers consume. Also the integrity gate: version guard + client-side
 // conservation re-check, so the status bar's glyphs are earned, not painted.
-import { num, ATTRS, BANDDEF } from "./format.js";
+import { num, BANDDEF } from "./format.js";
 
 const MONTH_NAME = m => new Date(m + "-01T00:00:00Z").toLocaleString("en-US", { month:"short", timeZone:"UTC" });
 
-// The emitter ships sparse maps: a membership class, amount band, or window
-// stat exists only when the window actually contains rows for it. Renderers
-// and pinners index densely, so absent keys are filled with zero entries here
-// at the boundary instead of guards in every consumer.
-const ATTR_KEYS = ATTRS.map(([k]) => k);
+// The emitter ships sparse maps: an amount band or window stat exists only
+// when the window actually contains rows for it. Renderers and pinners index
+// densely, so absent keys are filled with zero entries here at the boundary
+// instead of guards in every consumer.
 const BAND_KEYS = BANDDEF.map(([k]) => k);
 const ZERO_MEASURE  = { txn_count: 0, volume_usdc: "0" };
 const ZERO_TYPICAL  = { avg_usdc: "0", median_usdc: "0", txn_count: 0 };
@@ -30,27 +29,24 @@ export function reshape(doc){
     },
     windows: Object.fromEntries(winKeys.map(w => [w, {
       ...d.windows[w],
-      by_membership: dense(d.windows[w].by_membership, ATTR_KEYS, ZERO_MEASURE),
       by_band: dense(d.windows[w].by_band, BAND_KEYS, ZERO_MEASURE),
     }])),
     // compact tape: [day, txn_count, volume rounded to cents]
     daily: d.daily_series.map(p => [p.day, p.txn_count, Math.round(num(p.volume_usdc)*100)/100]),
-    monthly: d.monthly_series.map(m => ({ ...m, by_membership: dense(m.by_membership, ATTR_KEYS, ZERO_MEASURE) })),
-    typical: Object.fromEntries(winKeys.map(w => [w, dense(d.typical_payment[w], [...ATTR_KEYS, "all"], ZERO_TYPICAL)])),
+    monthly: d.monthly_series,
+    typical: Object.fromEntries(winKeys.map(w => [w, (d.typical_payment[w]) || { ...ZERO_TYPICAL }])),
     // renderers show top-12 price points per window; artifact ships 50
     price_points: Object.fromEntries(winKeys.map(w => [w, (d.price_points[w] || []).slice(0, 12)])),
     gas: {
       ...d.gas,
       windows: Object.fromEntries(winKeys.map(w => {
         const g = d.gas.windows[w] || {};
-        return [w, { by_membership: dense(g.by_membership, ATTR_KEYS, ZERO_GAS), by_band: g.by_band || {} }];
+        return [w, { ...g, by_band: g.by_band || {} }];
       })),
     },
     velocity: {
-      windows: Object.fromEntries(winKeys.map(w => [w, dense(d.velocity.windows[w], ATTR_KEYS, ZERO_VELOCITY)])),
-      known_daily: d.velocity.daily_series
-        .filter(p => p.membership === "known")
-        .map(p => [p.day, p.max_per_min, p.p99_per_min]),
+      windows: Object.fromEntries(winKeys.map(w => [w, d.velocity.windows[w] || { ...ZERO_VELOCITY }])),
+      known_daily: d.velocity.daily_series.map(p => [p.day, p.max_per_min, p.p99_per_min]),
     },
     claims: d.claims || [],
   };
@@ -79,12 +75,12 @@ export function checkIntegrity(view){
   }
   for (const [w, win] of Object.entries(view.windows)){
     let n = 0, usd = 0;
-    for (const m of Object.values(win.by_membership)){ n += m.txn_count; usd += num(m.volume_usdc); }
+    for (const m of Object.values(win.by_band)){ n += m.txn_count; usd += num(m.volume_usdc); }
     if (n !== win.txn_count){
-      issues.push({ level:"error", msg:`conservation ✗ — ${w} membership txns ${n} ≠ total ${win.txn_count}` });
+      issues.push({ level:"error", msg:`conservation ✗ — ${w} band txns ${n} ≠ total ${win.txn_count}` });
     }
     if (Math.abs(usd - num(win.volume_usdc)) > USD_TOLERANCE){
-      issues.push({ level:"error", msg:`conservation ✗ — ${w} membership USD off by $${Math.abs(usd - num(win.volume_usdc)).toFixed(2)}` });
+      issues.push({ level:"error", msg:`conservation ✗ — ${w} band USD off by $${Math.abs(usd - num(win.volume_usdc)).toFixed(2)}` });
     }
   }
   return issues;

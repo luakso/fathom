@@ -7,10 +7,10 @@ import { state, data, winLabel } from "./state.js";
 const pins = [];
 let selPin = 0;
 const PINNERS = {
-  overview(){ const w = data.windows[state.win], a = w.by_membership;
+  overview(){ const w = data.windows[state.win];
     return { title:"OVERVIEW · "+state.win.toUpperCase(), value:fmtMoney(w.volume_usdc),
-      context:`${fmtCount(w.txn_count)} x402 payments · known-facilitator ${pct(a.known.volume_usdc,w.volume_usdc)} of $`,
-      denom:"x402 settlements on Base · "+winLabel[state.win],
+      context:`${fmtCount(w.txn_count)} verified x402 payments · ${fmtMoney(w.volume_usdc)} volume`,
+      denom:"x402 payment = USDC authorization settled by a known facilitator (EIP-3009) on Base · "+winLabel[state.win],
       series:data.daily.map(d=>d[1]) }; },
   daily(){ const peak = data.daily.reduce((a,b)=> b[1]>a[1]?b:a);
     return { title:"DAILY TAPE", value:fmtInt(peak[1])+" tx/day peak",
@@ -34,29 +34,25 @@ const PINNERS = {
       denom:"x402 set · complete months",
       series: data.monthly.map(m => num(m.volume_usdc)) };
   },
-  split(){ const w = data.windows[state.win], a = w.by_membership;
-    return { title:"MEMBERSHIP · "+state.win.toUpperCase(), value:pct(a.unknown.volume_usdc,w.volume_usdc)+" unknown-facilitator",
-      context:`known ${fmtMoney(a.known.volume_usdc)} · unknown ${fmtMoney(a.unknown.volume_usdc)} (the discovery frontier)`,
-      denom:`facilitator allowlist v${data.meta.methodology_version} · `+winLabel[state.win] }; },
   shape(){ const t = data.typical[state.win];
-    if (!t.known.txn_count) return null;
-    const xMed = num(t.known.avg_usdc)/num(t.known.median_usdc);
-    return { title:"PAYMENT SHAPE · "+state.win.toUpperCase(), value:fmtAmt(t.known.median_usdc)+" median",
-      context:`mean ${fmtAmt(t.known.avg_usdc)} = ${isFinite(xMed) ? Math.round(xMed).toLocaleString() : "—"}× median`,
-      denom:"known-facilitator set · "+winLabel[state.win] }; },
+    if (!t.txn_count) return null;
+    const xMed = num(t.avg_usdc)/num(t.median_usdc);
+    return { title:"PAYMENT SHAPE · "+state.win.toUpperCase(), value:fmtAmt(t.median_usdc)+" median",
+      context:`mean ${fmtAmt(t.avg_usdc)} = ${isFinite(xMed) ? Math.round(xMed).toLocaleString() : "—"}× median`,
+      denom:"verified x402 set · "+winLabel[state.win] }; },
   price(){ const p = data.price_points[state.win][0];
     if (!p) return null;
     const READ = { menu:"a menu, not a market", market:"a market, not a menu", mixed:"between menu and market" };
     return { title:"PRICE POINTS · "+state.win.toUpperCase(), value:fmtAmt(p.amount_usdc)+" × "+fmtCount(p.txn_count),
       context:`top amount = ${p.txn_share_pct}% of known-facilitator tx across ${fmtInt(p.payee_count)} payees — ${READ[priceRead(p)]}`,
       denom:"known-facilitator set · "+winLabel[state.win] }; },
-  gas(){ const g = data.gas.windows[state.win].by_membership.known;
+  gas(){ const g = data.gas.windows[state.win];
     if (!g.txn_count) return null;
     const p = 100*g.breakeven_txn_count/g.txn_count;
     return { title:"GAS / BREAKEVEN · "+state.win.toUpperCase(), value:p.toFixed(1)+"% cost>value",
-      context:`${fmtInt(g.breakeven_txn_count)} of ${fmtInt(g.txn_count)} known-facilitator payments · ${g.gas_cents_per_dollar === null ? "—" : num(g.gas_cents_per_dollar).toFixed(2)+"¢"} true cost (L1+L2) per $1`,
+      context:`${fmtInt(g.breakeven_txn_count)} of ${fmtInt(g.txn_count)} verified payments · ${g.gas_cents_per_dollar === null ? "—" : num(g.gas_cents_per_dollar).toFixed(2)+"¢"} true cost (L1+L2) per $1`,
       denom:"tx-deduped L1+L2 cost, equal apportioning · monthly ETH/USD ref · "+winLabel[state.win] }; },
-  velocity(){ const vw = data.velocity.windows.all.known;
+  velocity(){ const vw = data.velocity.windows.all;
     const days = data.velocity.known_daily;
     if (!days.length) return null;
     const pi = peakIndex(days.map(d => d[1]));

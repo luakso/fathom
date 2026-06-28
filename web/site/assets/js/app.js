@@ -5,18 +5,18 @@ import { $, $$ } from "./dom.js";
 import { state, setData, setWinLabel } from "./state.js";
 import { loadEconomy, winLabels } from "./adapter.js";
 import { rDaily, rMonthly, rVelocity } from "./charts.js";
-import { rOverview, rSplit, rShape, rPrice, rGas, rClaims, rShell } from "./panels.js";
+import { rOverview, rShape, rPrice, rGas, rClaims, rShell } from "./panels.js";
 import { addPin, toggleTray, initTray, rCard } from "./tray.js";
 
 /* ————— small-screen gate ————— */
 const GATE_KEY = "fathom.smallScreenOk";
 function maybeGate(view){
   if (window.innerWidth >= 980 || localStorage.getItem(GATE_KEY) === "1") return;
-  const w = view.windows.all, a = w.by_membership;
+  const w = view.windows.all;
   $("#gate-nums").innerHTML = `
     <div>${(w.txn_count/1e6).toFixed(1)}M<small>PAYMENTS</small></div>
     <div>$${(parseFloat(w.volume_usdc)/1e6).toFixed(0)}M<small>VOLUME</small></div>
-    <div>$${(parseFloat(a.known.volume_usdc)/1e6).toFixed(1)}M<small>KNOWN</small></div>`;
+    <div>${(w.txn_count/1e6).toFixed(2)}M<small>VERIFIED TX</small></div>`;
   $("#gate").classList.add("open");
   $("#gate-continue").addEventListener("click", () => {
     localStorage.setItem(GATE_KEY, "1");
@@ -32,7 +32,7 @@ function fatal(err){
 $("#fatal-retry").addEventListener("click", () => location.reload());
 
 /* ————— render orchestration ————— */
-const WIN_PANELS = () => { rOverview(); rSplit(); rShape(); rPrice(); rGas(); rDaily(); };
+const WIN_PANELS = () => { rOverview(); rShape(); rPrice(); rGas(); rDaily(); };
 const ALL_PANELS = () => { WIN_PANELS(); rMonthly(); rVelocity(); rClaims(); rShell(); };
 
 function setWin(w){

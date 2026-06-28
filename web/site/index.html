@@ -56,11 +56,8 @@
         <div class="ptools"><button class="pin-it" data-pin="overview">⊞ pin</button></div>
         <div class="row2" id="ov-stats"><!-- js --></div>
         <div class="sep"></div>
-        <div class="sh-label"><span>USD SHARE</span><span id="ov-usd-r"></span></div>
-        <div class="shbar" id="ov-usd"></div>
-        <div class="sh-label"><span>TX SHARE</span><span id="ov-tx-r"></span></div>
-        <div class="shbar" id="ov-tx"></div>
-        <div class="note" id="ov-inv"></div>
+        <div class="sh-label"><span>PAYMENT SIZE</span></div>
+        <div class="bandbar" id="ov-bands"></div>
         <div class="denom" id="ov-denom"></div>
       </section>
 
@@ -93,15 +90,6 @@
         <div class="denom">x402 set · ◌ = partial month (excluded from MoM)</div>
       </section>
 
-      <!-- 4 SPLIT -->
-      <section class="panel span5" id="p4" style="animation-delay:.11s">
-        <div class="ptitle"><span class="no">4</span> MEMBERSHIP <span class="chip" id="sp-win"></span></div>
-        <div class="ptools"><button class="pin-it" data-pin="split">⊞ pin</button></div>
-        <table class="t" id="splittable"></table>
-        <div class="note" style="margin-top:8px" id="sp-note"></div>
-        <div class="denom" id="sp-denom">facilitator allowlist · splits sum to totals exactly</div>
-      </section>
-
       <!-- 5 SHAPE -->
       <section class="panel span5" id="p5" style="animation-delay:.14s">
         <div class="ptitle"><span class="no">5</span> PAYMENT SHAPE <span class="chip" id="shp-win"></span></div>
@@ -111,8 +99,6 @@
           <button class="pin-it" data-pin="shape">⊞ pin</button>
         </div>
         <div class="row2" id="shp-big"></div>
-        <div class="sep"></div>
-        <table class="t" id="typtable"></table>
         <div class="sep"></div>
         <div id="bands"></div>
         <div class="denom">bands across all x402 payments — the whale band concentrates the dollars · medians per window from their own scan</div>
