@@ -16,7 +16,7 @@ func TestBuildEconomy_MonthlySeriesCompleteness(t *testing.T) {
 	seedPayments(t, ctx, db, []seedRow{
 		{"0xa", 0, "2026-01-15T10:00:00Z", "0xfac1", "0xp1", "0xs1", "1.00"}, // Jan: starts mid-month
 		{"0xb", 0, "2026-02-03T10:00:00Z", "0xfac1", "0xp2", "0xs1", "2.00"}, // Feb: complete
-		{"0xc", 0, "2026-03-01T10:00:00Z", "0xfac2", "0xp3", "0xs2", "4.00"}, // Mar: cut by data edge
+		{"0xc", 0, "2026-03-01T10:00:00Z", "0xfac1", "0xp3", "0xs2", "4.00"}, // Mar: cut by data edge
 	})
 	require.NoError(t, metrics.Rebuild(ctx, pool, testPrices(t)))
 
@@ -32,7 +32,7 @@ func TestBuildEconomy_MonthlySeriesCompleteness(t *testing.T) {
 
 	require.Equal(t, "2026-02", feb.Month)
 	require.True(t, feb.Complete)
-	require.Equal(t, "2.000000", feb.ByMembership["known"].VolumeUSDC)
+	require.Equal(t, "2.000000", feb.VolumeUSDC)
 
 	require.Equal(t, "2026-03", mar.Month)
 	require.False(t, mar.Complete, "data_through_day is Mar 1 — month is cut at the right edge")
@@ -50,7 +50,7 @@ func TestBuildEconomy_GasL1L2Split(t *testing.T) {
 	page, err := metrics.BuildEconomy(ctx, pool, mustTime(t, "2026-06-05T00:00:00Z"))
 	require.NoError(t, err)
 
-	g := page.Gas.Windows["all"].ByMembership["known"]
+	g := page.Gas.Windows["all"]
 	require.Equal(t, int64(1), g.TxnCount)
 	require.Equal(t, "0.001000", g.GasETHL2) // 1e15 wei = 0.001 ETH
 	require.Equal(t, "0.001000", g.GasETHL1)
@@ -71,12 +71,12 @@ func TestBuildEconomy_TypicalPricePointsGasVelocity(t *testing.T) {
 	econ, err := metrics.BuildEconomy(ctx, pool, mustTime(t, "2026-06-05T00:00:00Z"))
 	require.NoError(t, err)
 
-	// typical_payment: avg = 12/3 = 4, median = 2 (known and overall equal here).
-	tp := econ.TypicalPayment["7d"]["known"]
+	// typical_payment: avg = 12/3 = 4, median = 2 (all payments are verified here).
+	tp := econ.TypicalPayment["7d"]
 	require.Equal(t, "4.000000", tp.AvgUSDC)
 	require.Equal(t, "2.000000", tp.MedianUSDC)
 	require.Equal(t, int64(3), tp.TxnCount)
-	require.Equal(t, "2.000000", econ.TypicalPayment["all"]["all"].MedianUSDC)
+	require.Equal(t, "2.000000", econ.TypicalPayment["all"].MedianUSDC)
 
 	// price_points: three distinct amounts, each once; rank 1 is the smallest
 	// (tie broken by amount asc). Share = 1/3.
@@ -87,7 +87,7 @@ func TestBuildEconomy_TypicalPricePointsGasVelocity(t *testing.T) {
 	require.Equal(t, "33.33", pp[0].TxnSharePct)
 
 	// gas: 3 payments × $2 = $6 over $12 moved → 50 cents per dollar.
-	g := econ.Gas.Windows["all"].ByMembership["known"]
+	g := econ.Gas.Windows["all"]
 	require.Equal(t, int64(3), g.TxnCount)
 	require.Equal(t, "6.00", g.GasUSD)
 	require.Equal(t, "0.003000", g.GasETH)
@@ -99,7 +99,7 @@ func TestBuildEconomy_TypicalPricePointsGasVelocity(t *testing.T) {
 	require.NotEmpty(t, econ.Gas.Method)
 
 	// velocity: two payments share minute 10:00.
-	require.Equal(t, int64(2), econ.Velocity.Windows["7d"]["known"].MaxPerMin)
+	require.Equal(t, int64(2), econ.Velocity.Windows["7d"].MaxPerMin)
 	require.Len(t, econ.Velocity.DailySeries, 1)
 	require.Equal(t, int64(2), econ.Velocity.DailySeries[0].MaxPerMin)
 }

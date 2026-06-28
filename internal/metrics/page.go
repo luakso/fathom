@@ -32,12 +32,11 @@ type Measure struct {
 	VolumeUSDC string `json:"volume_usdc"`
 }
 
-// WindowEconomy is the economy roll-up for one window, plus its split by
-// membership and by amount band.
+// WindowEconomy is the economy roll-up for one window (verified/known payments
+// only) plus its split by amount band.
 type WindowEconomy struct {
 	Measure
-	ByMembership map[string]Measure `json:"by_membership"`
-	ByBand       map[string]Measure `json:"by_band"`
+	ByBand map[string]Measure `json:"by_band"`
 }
 
 // DailyPoint is one day on the economy time-series chart.
@@ -49,15 +48,15 @@ type DailyPoint struct {
 // EconomyPage is the full payload for the Payment Economy page. Claims is
 // attached by Emit (ResolveClaims) — BuildEconomy leaves it empty.
 type EconomyPage struct {
-	Windows        map[string]WindowEconomy             `json:"windows"`
-	DailySeries    []DailyPoint                         `json:"daily_series"`
-	MonthlySeries  []MonthlyPoint                       `json:"monthly_series"`
-	TypicalPayment map[string]map[string]TypicalPayment `json:"typical_payment"`
-	PricePoints    map[string][]PricePoint              `json:"price_points"`
-	Gas            GasSection                           `json:"gas"`
-	Velocity       VelocitySection                      `json:"velocity"`
-	Claims         []ClaimResult                        `json:"claims"`
-	Concentration  ConcentrationSection                 `json:"concentration"`
+	Windows        map[string]WindowEconomy  `json:"windows"`
+	DailySeries    []DailyPoint              `json:"daily_series"`
+	MonthlySeries  []MonthlyPoint            `json:"monthly_series"`
+	TypicalPayment map[string]TypicalPayment `json:"typical_payment"`
+	PricePoints    map[string][]PricePoint   `json:"price_points"`
+	Gas            GasSection                `json:"gas"`
+	Velocity       VelocitySection           `json:"velocity"`
+	Claims         []ClaimResult             `json:"claims"`
+	Concentration  ConcentrationSection      `json:"concentration"`
 }
 
 // lowerBound returns the inclusive lower day (YYYY-MM-DD) for a window, or ""
@@ -72,14 +71,13 @@ func lowerBound(asOf time.Time, window string) string {
 	return asOf.AddDate(0, 0, -(d - 1)).Format(dayFormat)
 }
 
-// cubeSlice is one (day, membership, amount_band) cell of the cube, bounded
-// above by asOf. Every window, breakdown, and series point is a sum of these.
+// cubeSlice is one (day, amount_band) cell of the verified (known) cube,
+// bounded above by asOf. Every window, breakdown, and series point is a sum of these.
 type cubeSlice struct {
-	day        string // YYYY-MM-DD
-	membership string
-	band       string
-	txns       int64
-	volume     decimal.Decimal
+	day    string // YYYY-MM-DD
+	band   string
+	txns   int64
+	volume decimal.Decimal
 }
 
 // accum is a Measure under construction: integer count plus exact decimal sum,
@@ -140,13 +138,13 @@ func BuildEconomy(ctx context.Context, q Querier, asOf time.Time) (EconomyPage, 
 	return page, nil
 }
 
-// readCubeSlices fetches the cube cells up to and including asOf's day, in day order.
+// readCubeSlices fetches the verified (known) cube cells up to and including asOf's day, in day order.
 func readCubeSlices(ctx context.Context, q Querier, asOf time.Time) ([]cubeSlice, error) {
 	rows, err := q.Query(ctx, `
-		SELECT day::text, membership, amount_band, sum(txn_count), sum(volume_usdc)::text
+		SELECT day::text, amount_band, sum(txn_count), sum(volume_usdc)::text
 		FROM metrics_daily_v2
-		WHERE day <= $1::date
-		GROUP BY day, membership, amount_band
+		WHERE day <= $1::date AND membership = 'known'
+		GROUP BY day, amount_band
 		ORDER BY day`, asOf.Format(dayFormat))
 	if err != nil {
 		return nil, fmt.Errorf("economy cube read: %w", err)
@@ -157,7 +155,7 @@ func readCubeSlices(ctx context.Context, q Querier, asOf time.Time) ([]cubeSlice
 	for rows.Next() {
 		var s cubeSlice
 		var vol string
-		if err := rows.Scan(&s.day, &s.membership, &s.band, &s.txns, &vol); err != nil {
+		if err := rows.Scan(&s.day, &s.band, &s.txns, &vol); err != nil {
 			return nil, fmt.Errorf("scan cube slice: %w", err)
 		}
 		if s.volume, err = decimal.NewFromString(vol); err != nil {
@@ -171,25 +169,19 @@ func readCubeSlices(ctx context.Context, q Querier, asOf time.Time) ([]cubeSlice
 	return slices, nil
 }
 
-// windowEconomy sums the slices at or after lb ("" = no lower bound) into one
-// window's totals and its by-membership / by-band splits.
+// windowEconomy sums the verified slices at or after lb ("" = no lower bound)
+// into one window's totals and its by-band split.
 func windowEconomy(slices []cubeSlice, lb string) WindowEconomy {
 	var total accum
-	byMember := map[string]accum{}
 	byBand := map[string]accum{}
 	for _, s := range slices {
 		if lb != "" && s.day < lb {
 			continue
 		}
 		total = total.add(s)
-		byMember[s.membership] = byMember[s.membership].add(s)
 		byBand[s.band] = byBand[s.band].add(s)
 	}
-
-	we := WindowEconomy{Measure: total.measure(), ByMembership: map[string]Measure{}, ByBand: map[string]Measure{}}
-	for k, a := range byMember {
-		we.ByMembership[k] = a.measure()
-	}
+	we := WindowEconomy{Measure: total.measure(), ByBand: map[string]Measure{}}
 	for k, a := range byBand {
 		we.ByBand[k] = a.measure()
 	}

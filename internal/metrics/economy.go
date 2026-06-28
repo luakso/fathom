@@ -11,14 +11,13 @@ import (
 	"github.com/lukostrobl/fathom/internal/x402"
 )
 
-// MonthlyPoint is one month on the economy trend chart (E5). Complete is false
-// when the month is cut by either data edge, so the UI never derives MoM
-// growth from a partial month.
+// MonthlyPoint is one month on the economy trend chart (E5), verified payments
+// only. Complete is false when the month is cut by either data edge, so the UI
+// never derives MoM growth from a partial month.
 type MonthlyPoint struct {
 	Month    string `json:"month"` // YYYY-MM
 	Complete bool   `json:"complete"`
 	Measure
-	ByMembership map[string]Measure `json:"by_membership"`
 }
 
 // TypicalPayment answers "what does a typical payment look like" (E7).
@@ -48,10 +47,10 @@ type GasMeasure struct {
 	BreakevenTxnCount int64   `json:"breakeven_txn_count"`
 }
 
-// GasWindow splits one window's gas by membership and by amount band.
+// GasWindow holds the verified gas headline for one window plus a by-band split.
 type GasWindow struct {
-	ByMembership map[string]GasMeasure `json:"by_membership"`
-	ByBand       map[string]GasMeasure `json:"by_band"`
+	GasMeasure
+	ByBand map[string]GasMeasure `json:"by_band"`
 }
 
 // GasSection carries the gas windows plus the methodology notes that make the
@@ -66,18 +65,17 @@ type VelocityStat struct {
 	MaxPerMin int64 `json:"max_per_min"`
 }
 
-// VelocityPoint is one day of the burstiness series.
+// VelocityPoint is one day of the burstiness series (verified payments only).
 type VelocityPoint struct {
-	Day        string `json:"day"`
-	Membership string `json:"membership"`
-	MaxPerMin  int64  `json:"max_per_min"`
-	P99PerMin  int64  `json:"p99_per_min"`
+	Day       string `json:"day"`
+	MaxPerMin int64  `json:"max_per_min"`
+	P99PerMin int64  `json:"p99_per_min"`
 }
 
-// VelocitySection is the E12 payload.
+// VelocitySection is the E12 payload (verified payments only).
 type VelocitySection struct {
-	Windows     map[string]map[string]VelocityStat `json:"windows"`
-	DailySeries []VelocityPoint                    `json:"daily_series"`
+	Windows     map[string]VelocityStat `json:"windows"`
+	DailySeries []VelocityPoint         `json:"daily_series"`
 }
 
 // ClaimResult is a curated claim joined to its measured counterpart (E6).
@@ -96,10 +94,10 @@ var gasMethodNotes = map[string]string{
 	"cost":        "true L2 settlement cost = execution gas + L1 data fee",
 }
 
-// monthlySeries collapses day-ordered cube slices into calendar months. A
-// month is complete iff its first day >= the earliest data day AND its last
-// day <= asOf's day. The series is sparse — a calendar month with zero payments
-// is simply absent, like the daily series.
+// monthlySeries collapses day-ordered verified cube slices into calendar months.
+// A month is complete iff its first day >= the earliest data day AND its last
+// day <= asOf's day. The series is sparse — a calendar month with zero verified
+// payments is simply absent, like the daily series.
 func monthlySeries(slices []cubeSlice, asOf time.Time) ([]MonthlyPoint, error) {
 	if len(slices) == 0 {
 		return []MonthlyPoint{}, nil
@@ -108,8 +106,7 @@ func monthlySeries(slices []cubeSlice, asOf time.Time) ([]MonthlyPoint, error) {
 	asOfDay := asOf.Format(dayFormat)
 
 	type monthAccum struct {
-		total    accum
-		byMember map[string]accum
+		total accum
 	}
 	order := []string{}
 	months := map[string]*monthAccum{}
@@ -117,12 +114,11 @@ func monthlySeries(slices []cubeSlice, asOf time.Time) ([]MonthlyPoint, error) {
 		m := s.day[:7]
 		ma, ok := months[m]
 		if !ok {
-			ma = &monthAccum{byMember: map[string]accum{}}
+			ma = &monthAccum{}
 			months[m] = ma
 			order = append(order, m)
 		}
 		ma.total = ma.total.add(s)
-		ma.byMember[s.membership] = ma.byMember[s.membership].add(s)
 	}
 
 	series := make([]MonthlyPoint, 0, len(order))
@@ -134,59 +130,38 @@ func monthlySeries(slices []cubeSlice, asOf time.Time) ([]MonthlyPoint, error) {
 		monthStart := first.Format(dayFormat)
 		monthEnd := first.AddDate(0, 1, -1).Format(dayFormat)
 		mp := MonthlyPoint{
-			Month:        m,
-			Complete:     monthStart >= minDay && monthEnd <= asOfDay,
-			Measure:      months[m].total.measure(),
-			ByMembership: map[string]Measure{},
-		}
-		for k, a := range months[m].byMember {
-			mp.ByMembership[k] = a.measure()
+			Month:    m,
+			Complete: monthStart >= minDay && monthEnd <= asOfDay,
+			Measure:  months[m].total.measure(),
 		}
 		series = append(series, mp)
 	}
 	return series, nil
 }
 
-// buildTypicalPayment merges cube-side averages with rollup-side medians.
-// windows is the already-built map from BuildEconomy.
-func buildTypicalPayment(ctx context.Context, q Querier, windows map[string]WindowEconomy) (map[string]map[string]TypicalPayment, error) {
-	out := map[string]map[string]TypicalPayment{}
-	for w := range windowDays {
-		out[w] = map[string]TypicalPayment{}
-	}
-
+// buildTypicalPayment merges cube-side averages with rollup-side medians for
+// verified payments only. windows is the already-built map from BuildEconomy.
+func buildTypicalPayment(ctx context.Context, q Querier, windows map[string]WindowEconomy) (map[string]TypicalPayment, error) {
+	out := map[string]TypicalPayment{}
 	rows, err := q.Query(ctx, `
-		SELECT window_name, membership, txn_count, median_amount_usdc::text
-		FROM metrics_window_stats_v2`)
+		SELECT window_name, txn_count, median_amount_usdc::text
+		FROM metrics_window_stats_v2 WHERE membership = 'known'`)
 	if err != nil {
 		return nil, fmt.Errorf("window stats read: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var w, member, median string
+		var w, median string
 		var txns int64
-		if err := rows.Scan(&w, &member, &txns, &median); err != nil {
+		if err := rows.Scan(&w, &txns, &median); err != nil {
 			return nil, fmt.Errorf("scan window stats: %w", err)
 		}
-		if _, ok := out[w]; !ok {
+		if _, ok := windows[w]; !ok {
 			return nil, fmt.Errorf("window stats read: unknown window_name %q", w)
 		}
-		var m Measure
-		if member == "all" {
-			m = windows[w].Measure
-		} else {
-			m = windows[w].ByMembership[member]
-		}
-		out[w][member] = TypicalPayment{
-			AvgUSDC:    avgUSDC(m),
-			MedianUSDC: median,
-			TxnCount:   txns,
-		}
+		out[w] = TypicalPayment{AvgUSDC: avgUSDC(windows[w].Measure), MedianUSDC: median, TxnCount: txns}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("window stats read: %w", err)
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // avgUSDC divides a Measure's volume by its count, "0.000000" for empty.
@@ -225,7 +200,7 @@ func buildPricePoints(ctx context.Context, q Querier, windows map[string]WindowE
 		if _, ok := out[w]; !ok {
 			return nil, fmt.Errorf("price points read: unknown window_name %q", w)
 		}
-		knownTxns := windows[w].ByMembership["known"].TxnCount
+		knownTxns := windows[w].TxnCount
 		share := decimal.Zero
 		if knownTxns > 0 {
 			share = decimal.NewFromInt(p.TxnCount).
@@ -241,17 +216,16 @@ func buildPricePoints(ctx context.Context, q Querier, windows map[string]WindowE
 	return out, nil
 }
 
-// gasSlice mirrors one metrics_gas_daily_v2 row with exact decimals.
+// gasSlice mirrors one verified metrics_gas_daily_v2 row with exact decimals.
 type gasSlice struct {
-	day        string
-	membership string
-	band       string
-	txns       int64
-	l2         decimal.Decimal
-	l1         decimal.Decimal
-	usd        decimal.Decimal
-	breakeven  int64
-	volume     decimal.Decimal
+	day       string
+	band      string
+	txns      int64
+	l2        decimal.Decimal
+	l1        decimal.Decimal
+	usd       decimal.Decimal
+	breakeven int64
+	volume    decimal.Decimal
 }
 
 // gasAccum accumulates gasSlices for one split.
@@ -283,13 +257,13 @@ func (a gasAccum) measure() GasMeasure {
 	return gm
 }
 
-// buildGas windows the daily gas table by membership and band.
+// buildGas windows the daily gas table for verified payments by band.
 func buildGas(ctx context.Context, q Querier, asOf time.Time) (GasSection, error) {
 	rows, err := q.Query(ctx, `
-		SELECT day::text, membership, amount_band, txn_count,
+		SELECT day::text, amount_band, txn_count,
 		       l2_gas_cost_wei::text, l1_fee_wei::text, cost_usd::text, breakeven_txn_count, volume_usdc::text
 		FROM metrics_gas_daily_v2
-		WHERE day <= $1::date
+		WHERE day <= $1::date AND membership = 'known'
 		ORDER BY day`, asOf.Format(dayFormat))
 	if err != nil {
 		return GasSection{}, fmt.Errorf("gas read: %w", err)
@@ -300,7 +274,7 @@ func buildGas(ctx context.Context, q Querier, asOf time.Time) (GasSection, error
 	for rows.Next() {
 		var s gasSlice
 		var l2, l1, usd, vol string
-		if err := rows.Scan(&s.day, &s.membership, &s.band, &s.txns, &l2, &l1, &usd, &s.breakeven, &vol); err != nil {
+		if err := rows.Scan(&s.day, &s.band, &s.txns, &l2, &l1, &usd, &s.breakeven, &vol); err != nil {
 			return GasSection{}, fmt.Errorf("scan gas slice: %w", err)
 		}
 		if s.l2, err = decimal.NewFromString(l2); err != nil {
@@ -324,19 +298,16 @@ func buildGas(ctx context.Context, q Querier, asOf time.Time) (GasSection, error
 	sec := GasSection{Method: gasMethodNotes, Windows: map[string]GasWindow{}}
 	for w := range windowDays {
 		lb := lowerBound(asOf, w)
-		byMember := map[string]gasAccum{}
+		var total gasAccum
 		byBand := map[string]gasAccum{}
 		for _, s := range slices {
 			if lb != "" && s.day < lb {
 				continue
 			}
-			byMember[s.membership] = byMember[s.membership].add(s)
+			total = total.add(s)
 			byBand[s.band] = byBand[s.band].add(s)
 		}
-		gw := GasWindow{ByMembership: map[string]GasMeasure{}, ByBand: map[string]GasMeasure{}}
-		for k, a := range byMember {
-			gw.ByMembership[k] = a.measure()
-		}
+		gw := GasWindow{GasMeasure: total.measure(), ByBand: map[string]GasMeasure{}}
 		for k, a := range byBand {
 			gw.ByBand[k] = a.measure()
 		}
@@ -345,22 +316,22 @@ func buildGas(ctx context.Context, q Querier, asOf time.Time) (GasSection, error
 	return sec, nil
 }
 
-// buildVelocity windows the daily velocity table and carries the full series.
+// buildVelocity windows the daily velocity table for verified payments and carries the full series.
 func buildVelocity(ctx context.Context, q Querier, asOf time.Time) (VelocitySection, error) {
 	rows, err := q.Query(ctx, `
-		SELECT day::text, membership, max_per_min, p99_per_min
+		SELECT day::text, max_per_min, p99_per_min
 		FROM metrics_velocity_daily_v2
-		WHERE day <= $1::date
-		ORDER BY day, membership`, asOf.Format(dayFormat))
+		WHERE day <= $1::date AND membership = 'known'
+		ORDER BY day`, asOf.Format(dayFormat))
 	if err != nil {
 		return VelocitySection{}, fmt.Errorf("velocity read: %w", err)
 	}
 	defer rows.Close()
 
-	sec := VelocitySection{Windows: map[string]map[string]VelocityStat{}, DailySeries: []VelocityPoint{}}
+	sec := VelocitySection{Windows: map[string]VelocityStat{}, DailySeries: []VelocityPoint{}}
 	for rows.Next() {
 		var p VelocityPoint
-		if err := rows.Scan(&p.Day, &p.Membership, &p.MaxPerMin, &p.P99PerMin); err != nil {
+		if err := rows.Scan(&p.Day, &p.MaxPerMin, &p.P99PerMin); err != nil {
 			return VelocitySection{}, fmt.Errorf("scan velocity point: %w", err)
 		}
 		sec.DailySeries = append(sec.DailySeries, p)
@@ -371,36 +342,32 @@ func buildVelocity(ctx context.Context, q Querier, asOf time.Time) (VelocitySect
 
 	for w := range windowDays {
 		lb := lowerBound(asOf, w)
-		stats := map[string]VelocityStat{}
+		var stat VelocityStat
 		for _, p := range sec.DailySeries {
 			if lb != "" && p.Day < lb {
 				continue
 			}
-			if p.MaxPerMin > stats[p.Membership].MaxPerMin {
-				stats[p.Membership] = VelocityStat{MaxPerMin: p.MaxPerMin}
+			if p.MaxPerMin > stat.MaxPerMin {
+				stat = VelocityStat{MaxPerMin: p.MaxPerMin}
 			}
 		}
-		sec.Windows[w] = stats
+		sec.Windows[w] = stat
 	}
 	return sec, nil
 }
 
 // ResolveClaims joins the curated ledger to measured numbers from the built
-// page. Pure function — no DB — so the claim ledger can be re-emitted without
-// a rescan, and unit tests need no container.
+// page. All claims resolve against the verified (known) window total. Pure
+// function — no DB — so the claim ledger can be re-emitted without a rescan,
+// and unit tests need no container.
 func ResolveClaims(page EconomyPage, claims []Claim) ([]ClaimResult, error) {
 	out := make([]ClaimResult, 0, len(claims))
 	for _, c := range claims {
-		subject, kind, window, err := parseMetric(c.MeasuredMetric)
+		_, kind, window, err := parseMetric(c.MeasuredMetric)
 		if err != nil {
 			return nil, fmt.Errorf("claim %s: %w", c.ID, err)
 		}
-		var m Measure
-		if subject == "total" {
-			m = page.Windows[window].Measure
-		} else {
-			m = page.Windows[window].ByMembership[subject] // zero Measure if absent
-		}
+		m := page.Windows[window].Measure
 		r := ClaimResult{Claim: c}
 		switch kind {
 		case "txns":

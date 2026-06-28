@@ -79,7 +79,7 @@ func TestEmit_EconomySectionsAndClaims(t *testing.T) {
 	claims := []metrics.Claim{{
 		ID: "c1", Source: "Report", ClaimText: "169M+ payments",
 		ClaimedValue: "169000000", ClaimedUnit: "transactions",
-		MeasuredMetric: "known_txns_all",
+		MeasuredMetric: "total_txns_all",
 	}}
 	dir := t.TempDir()
 	require.NoError(t, metrics.Emit(ctx, pool, dir, claims))
@@ -92,7 +92,7 @@ func TestEmit_EconomySectionsAndClaims(t *testing.T) {
 				Month    string `json:"month"`
 				Complete bool   `json:"complete"`
 			} `json:"monthly_series"`
-			TypicalPayment map[string]map[string]struct {
+			TypicalPayment map[string]struct {
 				MedianUSDC string `json:"median_usdc"`
 			} `json:"typical_payment"`
 			PricePoints map[string][]struct {
@@ -102,14 +102,12 @@ func TestEmit_EconomySectionsAndClaims(t *testing.T) {
 			Gas struct {
 				Method  map[string]string `json:"method"`
 				Windows map[string]struct {
-					ByMembership map[string]struct {
-						GasUSD            string  `json:"gas_usd"`
-						GasCentsPerDollar *string `json:"gas_cents_per_dollar"`
-					} `json:"by_membership"`
+					GasUSD            string  `json:"gas_usd"`
+					GasCentsPerDollar *string `json:"gas_cents_per_dollar"`
 				} `json:"windows"`
 			} `json:"gas"`
 			Velocity struct {
-				Windows map[string]map[string]struct {
+				Windows map[string]struct {
 					MaxPerMin int64 `json:"max_per_min"`
 				} `json:"windows"`
 				DailySeries []struct {
@@ -125,14 +123,14 @@ func TestEmit_EconomySectionsAndClaims(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(b, &doc))
 	require.Equal(t, "2026-06", doc.Data.MonthlySeries[0].Month)
-	require.Equal(t, "2.000000", doc.Data.TypicalPayment["all"]["known"].MedianUSDC)
+	require.Equal(t, "2.000000", doc.Data.TypicalPayment["all"].MedianUSDC)
 	require.Equal(t, "2.000000", doc.Data.PricePoints["all"][0].AmountUSDC)
 	require.NotEmpty(t, doc.Data.Gas.Method)
-	require.Equal(t, int64(1), doc.Data.Velocity.Windows["all"]["known"].MaxPerMin)
+	require.Equal(t, int64(1), doc.Data.Velocity.Windows["all"].MaxPerMin)
 	require.Len(t, doc.Data.Claims, 1)
 	require.Equal(t, "1", doc.Data.Claims[0].MeasuredValue)
 
-	gw := doc.Data.Gas.Windows["all"].ByMembership["known"]
+	gw := doc.Data.Gas.Windows["all"]
 	require.Equal(t, "0.00", gw.GasUSD)
 	require.NotNil(t, gw.GasCentsPerDollar)
 	require.Equal(t, "0.0000", *gw.GasCentsPerDollar)

@@ -10,13 +10,13 @@ import (
 	"github.com/lukostrobl/fathom/internal/metrics"
 )
 
-func TestBuildEconomy_WindowAndMembership(t *testing.T) {
+func TestBuildEconomy_WindowVerifiedOnly(t *testing.T) {
 	ctx, db, pool := setupMetrics(t)
 	allowlist(t, ctx, db, "0xfac1")
 	seedPayments(t, ctx, db, []seedRow{
 		{"0xa", 0, "2026-06-08T10:00:00Z", "0xfac1", "0xp1", "0xs1", "2.00"}, // known small, in 7d
 		{"0xb", 0, "2026-06-08T11:00:00Z", "0xfac1", "0xp2", "0xs1", "3.00"}, // known small, in 7d
-		{"0xc", 0, "2026-05-01T09:00:00Z", "0xfac2", "0xp3", "0xs2", "5.00"}, // unknown, only in 'all'
+		{"0xc", 0, "2026-05-01T09:00:00Z", "0xfac2", "0xp3", "0xs2", "5.00"}, // unknown: filtered out
 	})
 	require.NoError(t, metrics.Rebuild(ctx, pool, testPrices(t)))
 
@@ -26,14 +26,14 @@ func TestBuildEconomy_WindowAndMembership(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, int64(2), econ.Windows["7d"].TxnCount)
-	require.Equal(t, "5.000000", econ.Windows["7d"].VolumeUSDC) // 2 + 3
-	require.Equal(t, int64(3), econ.Windows["all"].TxnCount)
-	require.Equal(t, int64(2), econ.Windows["7d"].ByMembership["known"].TxnCount)
-	require.Len(t, econ.DailySeries, 2) // two distinct days seeded
+	require.Equal(t, "5.000000", econ.Windows["7d"].VolumeUSDC) // 2 + 3 (known only)
+	require.Equal(t, int64(2), econ.Windows["all"].TxnCount)    // unknown payment filtered
+	require.Len(t, econ.DailySeries, 1)                         // only Jun 8 (May 1 unknown filtered)
 }
 
 func TestBuildEconomy_WindowIsSevenDaysInclusive(t *testing.T) {
 	ctx, db, pool := setupMetrics(t)
+	allowlist(t, ctx, db, "0xfac2")
 	seedPayments(t, ctx, db, []seedRow{
 		{"in", 0, "2026-06-03T12:00:00Z", "0xfac2", "0xp1", "0xs1", "1.00"},  // exactly 7th day back from 06-09 → included
 		{"out", 0, "2026-06-02T12:00:00Z", "0xfac2", "0xp2", "0xs1", "1.00"}, // 8th day back → excluded
@@ -65,6 +65,7 @@ func TestBuildFacilitators_TopN(t *testing.T) {
 
 func TestBuildEconomy_AsOfBoundsAbove(t *testing.T) {
 	ctx, db, pool := setupMetrics(t)
+	allowlist(t, ctx, db, "0xfac2")
 	seedPayments(t, ctx, db, []seedRow{
 		{"in", 0, "2026-06-08T10:00:00Z", "0xfac2", "0xp1", "0xs1", "1.00"},
 		{"future", 0, "2026-06-15T10:00:00Z", "0xfac2", "0xp2", "0xs1", "1.00"}, // after asOf → excluded everywhere
